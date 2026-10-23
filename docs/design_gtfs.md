@@ -16,6 +16,8 @@ The checksum is taken over the downloaded bytes, not over HTTP headers. `ETag` a
 
 The third case covers a publisher that rolls back to an earlier build.
 
+A content hash over the extracted files was considered as the "already loaded" check, so that a zip that is repacked with unchanged content would not load again. The archived HSL builds show it would make no difference. Same-day rebuilds are byte-identical, and builds on different days always change rows, because `service_id` and `trip_id` contain the start date of a rolling window (see [data_sources.md](data_sources.md#how-the-feed-changes-between-builds)). `feed_info.feed_version` is no better: it is the build timestamp. The zip sha256 is the cheapest check that is correct for this source.
+
 ## One transaction per load
 
 The whole load is one PostgreSQL transaction:

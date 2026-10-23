@@ -59,6 +59,27 @@ The URL, the redirect and the HTTP headers below were checked on 23 October 2026
 - **Direction.** `direction_id` is `0` or `1` (161,715 and 155,209 trips). HFP uses `1` and `2`; the mapping is verified against live data when the stream is matched to trips.
 - **`trips2.txt`** repeats `trips.txt` with an extra `block_id` column (vehicle blocks). It is not standard GTFS and is not loaded.
 
+### How the feed changes between builds
+
+The storage container behind the download URL is publicly listable (`…/gtfs?restype=container&comp=list`). Next to `hsl.zip` it keeps dated copies of earlier builds (`hsl_YYYYMMDDTHHMMSSZ.zip`, about six weeks back). Eight of them were compared on 23 October 2026.
+
+**Rebuilds on the same day are byte-identical.** HSL sometimes publishes more than once a day (three builds on 14 October, two on 20 October). Those copies have the same sha256, including `feed_info.feed_version`, which still carries the time of the day's first build. The zip checksum already recognises them.
+
+**Builds on different days always differ, and mostly in identifiers.** Each daily build moves the window one day forward. `service_id` and `trip_id` contain the first day of their validity period (`1001_20261022_20261030_Ke`, `1001_20261022_Ke_1_0537`), so that date changes and the rows get new keys:
+
+| Build compared with previous day | `trips` rows changed | `stop_times` rows changed | `trips` changed with dates masked |
+|---|---:|---:|---:|
+| 21 Oct | −239,963 / +240,760 of 307,723 | −4.35 M / +4.37 M of 8.26 M | |
+| 22 Oct | −240,760 / +241,003 of 307,966 | −4.34 M / +4.34 M of 8.26 M | |
+| 23 Oct | −240,782 / +249,740 of 316,924 | −4.37 M / +4.52 M of 8.41 M | −0 / +2,365 |
+
+With every 8-digit date masked, 23 October's `trips.txt` removes nothing and adds 2,365 rows (0.7%), and `calendar.txt` adds 76 rows. The timetable itself changes little from day to day, but no daily build is identical to the one before it, neither in bytes nor in rows.
+
+Two consequences:
+
+- **Change detection.** A hash over the extracted files, or `feed_info.feed_version`, would skip exactly the same builds as the zip checksum: the same-day copies. So the zip sha256 stays the "already loaded" check. Each new day's build is loaded as a new version.
+- **Ids are only stable within one build.** A `trip_id` from one day's feed usually does not exist in the next day's feed. Real-time events must therefore be matched to the feed that is current when they arrive, and they must keep the planned time, trip and route they were matched to rather than a reference to be resolved later.
+
 ### Route types in the feed
 
 | `route_type` | Routes | Mode |

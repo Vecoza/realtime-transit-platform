@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
+from psycopg.conninfo import make_conninfo
 
 load_dotenv()
 
@@ -31,8 +32,18 @@ class DatabaseSettings:
     @property
     def url(self) -> str:
         return (
-            f"postgresql+psycopg://{self.user}:{self.password}"
-            f"@{self.host}:{self.port}/{self.name}"
+            f"postgresql+psycopg://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+        )
+
+    @property
+    def conninfo(self) -> str:
+        """Connection string for psycopg, used where the COPY protocol is needed."""
+        return make_conninfo(
+            user=self.user,
+            password=self.password,
+            host=self.host,
+            port=self.port,
+            dbname=self.name,
         )
 
 

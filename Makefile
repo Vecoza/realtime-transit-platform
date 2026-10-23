@@ -1,4 +1,5 @@
-.PHONY: help install up down logs psql topics check lint format test clean
+.PHONY: help install up down logs psql topics check migrate migrate-down migrate-status \
+	lint format test test-unit test-db clean
 
 help:  ## Show available commands
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -24,14 +25,30 @@ topics:  ## List Redpanda topics
 check:  ## Verify database and stream connections from Python
 	python -m transit_platform.health
 
+migrate:  ## Apply all database migrations
+	alembic upgrade head
+
+migrate-down:  ## Revert all database migrations
+	alembic downgrade base
+
+migrate-status:  ## Show the current migration and the history
+	alembic current
+	alembic history
+
 lint:  ## Run linter
 	ruff check .
 
 format:  ## Format code
 	ruff format .
 
-test:  ## Run tests
+test:  ## Run all tests (database tests are skipped if PostgreSQL is not running)
 	pytest
+
+test-unit:  ## Run tests that do not need a database
+	pytest -m "not db"
+
+test-db:  ## Run database tests
+	pytest -m db
 
 clean:  ## Remove caches
 	rm -rf .pytest_cache .ruff_cache .coverage htmlcov

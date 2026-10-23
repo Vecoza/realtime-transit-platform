@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 from psycopg.conninfo import make_conninfo
@@ -66,4 +67,17 @@ class SourceSettings:
         return cls(
             mqtt_host=os.getenv("HSL_MQTT_HOST", "mqtt.hsl.fi"),
             mqtt_port=int(os.getenv("HSL_MQTT_PORT", "8883")),
+        )
+
+
+@dataclass(frozen=True)
+class GtfsSettings:
+    url: str
+    download_dir: Path
+
+    @classmethod
+    def from_env(cls) -> GtfsSettings:
+        return cls(
+            url=os.getenv("GTFS_URL", "https://infopalvelut.storage.hsldev.com/gtfs/hsl.zip"),
+            download_dir=Path(os.getenv("GTFS_DOWNLOAD_DIR", "data/gtfs")),
         )

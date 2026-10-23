@@ -96,6 +96,10 @@ realtime-transit-platform/
 - [ ] Monitoring dashboards
 - [ ] Documentation: architecture, design notes and results
 
+## Possible improvements
+
+- **Faster `shapes` and `trips` loads.** Together they take about 55 of the 173 seconds of a full timetable load, mostly spent on per-row foreign key checks. Partitioning them by feed version like `stop_times` would let each version load into a plain table and be attached afterwards, with the index built in one pass and the foreign keys checked in one query.
+
 ## Data source
 
 Real-time and timetable data: © Helsinki Region Transport (HSL), published as open data under the [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/) licence. Details are in [docs/data_sources.md](docs/data_sources.md).

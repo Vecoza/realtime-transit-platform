@@ -8,6 +8,30 @@ on:
 jobs:
   test:
     runs-on: ubuntu-24.04
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: transit
+          POSTGRES_PASSWORD: rtp_local_pw_2026
+          POSTGRES_DB: transit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U transit -d transit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_USER: transit
+      POSTGRES_PASSWORD: rtp_local_pw_2026
+      POSTGRES_DB: transit
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      PGPASSWORD: rtp_local_pw_2026
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,6 +45,14 @@ jobs:
 
       - name: Lint
         run: ruff check .
+
+      - name: Create schemas
+        run: >-
+          psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+          -v ON_ERROR_STOP=1 -f docker/init/01_create_schemas.sql
+
+      - name: Apply migrations
+        run: make migrate
 
       - name: Test
         run: pytest

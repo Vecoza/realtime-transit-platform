@@ -101,7 +101,32 @@ Storage per feed version: `stop_times` 1,380 MB (906 MB heap, the rest is the pr
 
 ## Retention
 
-HSL rebuilds the zip daily, and each build has a new checksum even when the timetable barely changes. Keeping every version would add about 8.4 million `stop_times` rows, about 1.4 GB, every day. Real-time facts stay in PostgreSQL for seven days, so the only versions worth keeping are the current one and those that were current during that window. Dropping older versions is a `DROP TABLE` of their `stop_times` partition followed by a `DELETE` from `feed_versions` that cascades to the small tables. That belongs in the daily storage maintenance job.
+Every daily HSL build is a new version (see above), and each one adds about 8.4 million `stop_times` rows, about 1.4 GB. Keeping all of them is not an option. Keeping none but the current one is not either: an event received at 00:30 belongs to the previous service day, and a late or replayed event must still be matched against the timetable that was current when it happened.
+
+**What stays in PostgreSQL.** The current version, plus every version that was current at some point in the hot window. The hot window is the seven days real-time facts stay in PostgreSQL. A version was current from its `loaded_at` until the next version's `loaded_at`, so the set to keep is:
+
+```sql
+SELECT feed_id
+FROM (
+    SELECT feed_id,
+           lead(loaded_at) OVER (ORDER BY loaded_at) AS replaced_at
+    FROM gtfs.feed_versions
+) AS versions
+WHERE replaced_at IS NULL
+   OR replaced_at > now() - INTERVAL '7 days'
+```
+
+With one build a day this is about eight versions, roughly 11 GB, almost all of it `stop_times`.
+
+**What happens to an older version.** Before a version is dropped, the maintenance job exports the tables that describe the published timetable to Parquet, then removes the version from PostgreSQL:
+
+1. Export `stop_times`, `trips` and `service_dates` of that `feed_id` to `data/archive/gtfs/<table>/feed_id=<n>/`.
+2. Verify the row count of every file against PostgreSQL, and record the export in `meta.archive_runs`.
+3. `DROP TABLE gtfs.stop_times_<n>`, then `DELETE FROM gtfs.feed_versions WHERE feed_id = <n>`; the foreign keys cascade to the small tables.
+
+Each step is idempotent. A version that has been exported but not dropped is exported again or skipped based on `meta.archive_runs`, and nothing is dropped without a verified export. The export keeps the schedule history available for analysis in DuckDB, for example to compare how a route's timetable changed between builds.
+
+**Why stored history never needs an old feed in PostgreSQL.** The stream processor matches each event to the current feed when the event arrives. It stores the result on the event row: the planned time, `trip_id`, `route_id`, direction and `feed_id`. From then on, delay and punctuality are computed from the event row alone. Old versions are kept for the window in which events can still arrive late or be replayed, not for reading stored history. This also matters because `trip_id` values change with every build: resolving an old event against a later feed would fail.
 
 ## Not loaded
 

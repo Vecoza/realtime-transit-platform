@@ -1,4 +1,4 @@
-.PHONY: help install up down logs psql topics check migrate migrate-down migrate-status \
+.PHONY: help install up down logs psql topics check migrate migrate-down migrate-status gtfs-load \
 	lint format test test-unit test-db clean
 
 help:  ## Show available commands
@@ -34,6 +34,9 @@ migrate-down:  ## Revert all database migrations
 migrate-status:  ## Show the current migration and the history
 	alembic current
 	alembic history
+
+gtfs-load:  ## Download the GTFS timetable and load it (FILE=path.zip loads a local zip)
+	python -m gtfs.load $(if $(FILE),--file $(FILE))
 
 lint:  ## Run linter
 	ruff check .

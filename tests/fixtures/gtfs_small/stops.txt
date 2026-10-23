@@ -1,0 +1,5 @@
+stop_id,stop_code,stop_name,stop_desc,stop_lat,stop_lon,zone_id,location_type,parent_station,platform_code
+1000001,,Rautatientori,,60.171000,24.943000,A,1, , 
+1050417,H0417,Eira,Telakkakatu,60.157500,24.938200,A,0, , 
+1010108,H2013,Rautatientori,Kaivokatu,60.171230,24.943100,A,0,1000001,3
+1293101,E1931,Itäkeskus,,60.210300,25.081700,B,0, , 

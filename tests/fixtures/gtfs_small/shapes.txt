@@ -1,0 +1,4 @@
+shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled
+1001_1,60.157500,24.938200,1,0.000
+1001_1,60.164000,24.940000,2,0.812
+1001_1,60.171230,24.943100,3,1.650

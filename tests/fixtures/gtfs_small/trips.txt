@@ -1,0 +1,4 @@
+route_id,service_id,trip_id,trip_headsign,direction_id,shape_id
+1001,WEEKDAY,1001_WEEKDAY_0537,"Käpylä",0,1001_1
+2550,WEEKEND,2550_WEEKEND_2350,"Westendinasema",1,
+1001,HOLIDAY,1001_HOLIDAY_1000,"Käpylä",0,1001_1

@@ -1,8 +1,10 @@
-"""Shared fixtures: a migrated test database."""
+"""Shared fixtures: a migrated test database and helpers for building GTFS zips."""
 
 from __future__ import annotations
 
 import os
+import shutil
+import zipfile
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -18,6 +20,7 @@ from transit_platform.config import DatabaseSettings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INIT_SQL = sorted((REPO_ROOT / "docker" / "init").glob("*.sql"))
+GTFS_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "gtfs_small"
 
 
 @pytest.fixture(scope="session")
@@ -67,3 +70,39 @@ def migration_config(database_settings: DatabaseSettings) -> Config:
 def migrated(database_settings: DatabaseSettings, migration_config: Config) -> DatabaseSettings:
     command.upgrade(migration_config, "head")
     return database_settings
+
+
+@pytest.fixture
+def conn(migrated: DatabaseSettings) -> Iterator[psycopg.Connection]:
+    """A connection to the migrated test database; GTFS data is removed afterwards."""
+    with psycopg.connect(migrated.conninfo) as connection:
+        yield connection
+        connection.rollback()
+        reset_gtfs(connection)
+
+
+def reset_gtfs(conn: psycopg.Connection) -> None:
+    with conn.transaction():
+        partitions = conn.execute("""
+            SELECT inhrelid::regclass::TEXT
+            FROM pg_inherits
+            WHERE inhparent = 'gtfs.stop_times'::regclass
+        """).fetchall()
+        for (partition,) in partitions:
+            conn.execute(f"DROP TABLE {partition}")
+        conn.execute("TRUNCATE gtfs.feed_versions RESTART IDENTITY CASCADE")
+
+
+@pytest.fixture
+def feed_dir(tmp_path: Path) -> Path:
+    """A writable copy of the small GTFS fixture."""
+    target = tmp_path / "gtfs_small"
+    shutil.copytree(GTFS_FIXTURE, target)
+    return target
+
+
+def zip_feed(source_dir: Path, target: Path) -> Path:
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(source_dir.glob("*.txt")):
+            archive.write(path, path.name)
+    return target

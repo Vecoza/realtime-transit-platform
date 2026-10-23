@@ -1,0 +1,105 @@
+# Realtime Transit Platform
+
+A streaming data platform that ingests live vehicle positions from Helsinki's public transport network, processes them in real time, and compares what actually happens on the streets with the published timetable.
+
+> **Status:** In development. The platform is being built in phases; see the roadmap below.
+
+## Background
+
+My earlier project, an academic data platform, was built around batch processing: data moves once a day, and a few hours of delay do not matter. Many real systems cannot wait that long. A public transport operator wants to know *now* that a line is running late, that two buses are travelling bumper to bumper, or that a vehicle has stopped reporting.
+
+I wanted to learn how data engineering works when data never stops arriving, so I built this project in my free time. I chose Helsinki because its transport authority, HSL, publishes the position of every bus, tram, metro and train as an open real-time feed, together with the full timetable. It is real data, at real volume, with all the problems real data has: duplicates, late messages, gaps and vehicles that go silent.
+
+## The problem
+
+Every vehicle in the network reports its position about once per second. During a weekday peak that is well over a thousand messages per second. Each message on its own says little. The questions people actually ask need the stream to be cleaned, joined with the timetable and aggregated over time:
+
+- Which lines are running late right now, and by how much?
+- Which stops have the worst punctuality, and at what time of day?
+- Where do vehicles bunch together instead of keeping their scheduled interval?
+- Which vehicles have stopped sending data?
+
+The data arrives continuously, out of order and sometimes twice. The platform has to process it with low latency, never lose or double-count a message, and still keep a reliable history for analysis.
+
+## What the project builds
+
+**1. Timetable loader (batch)**
+Downloads HSL's static timetable in GTFS format (routes, trips, stops and scheduled stop times) and loads it into PostgreSQL. Each timetable version is kept, so a delay is always measured against the timetable that was valid on that day.
+
+**2. Stream producer**
+Subscribes to HSL's live MQTT feed and publishes every message to a Kafka-compatible event stream (Redpanda). It can also record the live stream to files and replay it later at any speed, which makes development and testing independent of the live feed.
+
+**3. Stream processor**
+Consumes the stream, validates every message against a schema, removes duplicates, enriches positions with timetable data, and writes them to PostgreSQL. Invalid messages go to a dead-letter topic instead of being lost. Writes are idempotent and offsets are committed only after the data is stored, so a crash never loses or duplicates data.
+
+**4. Real-time aggregation**
+Aggregates arrivals and positions in event-time windows (per line, per stop, per minute), with explicit handling of late-arriving messages.
+
+**5. Storage lifecycle and analytics**
+Recent data lives in daily-partitioned PostgreSQL tables for fast queries. Older partitions are exported to Parquet files and dropped, keeping the operational database small while the full history stays queryable with DuckDB. dbt models turn the data into analytical marts: on-time performance, delay by stop and hour, and vehicle bunching.
+
+**6. Monitoring dashboard**
+Grafana dashboards, provisioned as code, show live delays per line alongside the health of the pipeline itself: throughput, consumer lag and dead-letter counts.
+
+## Architecture
+
+```
+┌──────────────┐   ┌──────────┐   ┌───────────┐   ┌──────────────┐   ┌────────────┐
+│ HSL MQTT     │──▶│ Producer │──▶│ Redpanda  │──▶│ Stream       │──▶│ PostgreSQL │──▶ Grafana
+│ live feed    │   │ (Python) │   │ (Kafka)   │   │ processor    │   │ partitions │
+└──────────────┘   └──────────┘   └───────────┘   └──────────────┘   └─────┬──────┘
+                                        │                                  │
+                                   dead-letter                     Parquet archive
+┌──────────────┐                                                   + DuckDB, dbt
+│ GTFS         │──▶ timetable tables in PostgreSQL ──▶ enrichment
+│ timetable    │
+└──────────────┘
+```
+
+## Tech stack
+
+| Area | Tools |
+|---|---|
+| Language | Python 3.11+ |
+| Event streaming | Redpanda (Kafka API) |
+| Source protocol | MQTT |
+| Database | PostgreSQL 16 (native partitioning) |
+| Archive and analytics | Parquet, DuckDB, dbt |
+| Monitoring | Grafana |
+| Infrastructure | Docker, Docker Compose |
+| Quality | pytest, ruff, GitHub Actions |
+
+## Repository structure
+
+```
+realtime-transit-platform/
+├── src/transit_platform/   Shared package: configuration, database and stream connections
+├── gtfs/                   Timetable download and loading
+├── producer/               MQTT subscriber, recorder and replayer
+├── processor/              Stream validation, enrichment and storage
+├── archive/                Partition export to Parquet
+├── dbt/                    Analytical models and tests
+├── grafana/                Dashboards and data sources as code
+├── docker/init/            Database initialization
+├── docs/                   Architecture and design notes
+└── tests/                  Python tests
+```
+
+## Roadmap
+
+- [x] Project foundation, containerized database and event stream, continuous integration
+- [ ] Timetable loader (GTFS)
+- [ ] Stream producer with record and replay
+- [ ] Stream processor: validation, deduplication, enrichment, dead-letter topic
+- [ ] Event-time aggregation with late data handling
+- [ ] Partitioned storage, Parquet archive and analytical models
+- [ ] Monitoring dashboards
+- [ ] Documentation: architecture, design notes and results
+
+## Data source
+
+Real-time and timetable data: Helsinki Region Transport (HSL), published as open data.
+
+## License
+
+MIT

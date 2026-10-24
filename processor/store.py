@@ -8,7 +8,7 @@ up in the feed that was current on the operating day.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date
 
 import psycopg
@@ -58,7 +58,11 @@ JOURNEY_MATCH_CTE = """
         WHERE route_id IS NOT NULL AND direction_id IS NOT NULL
           AND oday IS NOT NULL AND start_offset_seconds IS NOT NULL
     ),
-    matches AS (
+    feeds AS MATERIALIZED (
+        SELECT oday, gtfs.feed_for_service_date(oday) AS feed_id
+        FROM (SELECT DISTINCT oday FROM journeys) AS days
+    ),
+    matches AS MATERIALIZED (
         SELECT j.*, f.feed_id, trip.trip_id,
                CASE
                    WHEN f.feed_id IS NULL THEN 'no_feed'
@@ -70,7 +74,7 @@ JOURNEY_MATCH_CTE = """
                    ELSE 'matched'
                END AS journey_status
         FROM journeys AS j
-        CROSS JOIN LATERAL (SELECT gtfs.feed_for_service_date(j.oday) AS feed_id) AS f
+        JOIN feeds AS f USING (oday)
         LEFT JOIN LATERAL (
             SELECT t.trip_id
             FROM gtfs.trips AS t
@@ -190,10 +194,15 @@ class WriteResult:
     inserted: int
     unmatched: int
     latencies_ms: list[int]
+    copies_in_batch: int = 0
 
     @property
     def duplicates(self) -> int:
-        return self.staged - self.inserted
+        """Copies dropped before the insert plus rows whose key was already stored."""
+        return self.copies_in_batch + self.staged - self.inserted
+
+    def with_copies(self, copies: int) -> WriteResult:
+        return replace(self, copies_in_batch=copies)
 
 
 def event_days(events: Iterable[Event]) -> set[date]:

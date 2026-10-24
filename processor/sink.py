@@ -3,7 +3,8 @@
 Each batch follows the same order:
 
 1. consume up to ``batch_max_messages`` or until ``batch_max_ms`` has passed;
-2. decode and validate; rejected messages go to the dead-letter topic, which is flushed;
+2. drop exact copies within the batch, then decode and validate; rejected messages go to the
+   dead-letter topic, which is flushed;
 3. write the events and the batch metrics in one database transaction and commit it;
 4. commit the Kafka offsets of the batch.
 
@@ -90,9 +91,17 @@ class StorageSink:
         polled = time.perf_counter()
 
         events: list[Event] = []
-        rejected = 0
+        rejected = copies = 0
+        seen: set[tuple[str, str]] = set()
         for message in messages:
-            outcome = decode_message(message)
+            outcome = parse_envelope(message)
+            if isinstance(outcome, Envelope):
+                marker = (outcome.topic, outcome.payload)
+                if marker in seen:
+                    copies += 1
+                    continue
+                seen.add(marker)
+                outcome = decode(outcome)
             if isinstance(outcome, Rejection):
                 self._dead_letter(message, outcome)
                 rejected += 1
@@ -107,7 +116,7 @@ class StorageSink:
             ensure_partitions(self.conn, new_days)
             self.known_days |= new_days
         with self.conn.transaction():
-            result = write_events(self.conn, events)
+            result = write_events(self.conn, events).with_copies(copies)
             timings = {
                 "poll_ms": _ms(started, polled),
                 "decode_ms": _ms(polled, decoded),
@@ -200,12 +209,11 @@ class StorageSink:
             return None
 
 
-def decode_message(message: Message) -> Event | Rejection:
+def parse_envelope(message: Message) -> Envelope | Rejection:
     try:
-        envelope = Envelope.from_json(message.value())
+        return Envelope.from_json(message.value())
     except (ValueError, KeyError, TypeError) as error:
         return Rejection("invalid_envelope", str(error))
-    return decode(envelope)
 
 
 def next_offsets(messages: list[Message]) -> list[TopicPartition]:

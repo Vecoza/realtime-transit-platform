@@ -24,12 +24,19 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 
 import psycopg
 from confluent_kafka import Consumer, KafkaError, Message, Producer, TopicPartition
 
 from processor.decode import Event, Rejection, decode
-from processor.store import WriteResult, ensure_partitions, event_days, write_events
+from processor.store import (
+    WriteResult,
+    ensure_partitions,
+    event_days,
+    upcoming_days,
+    write_events,
+)
 from producer.hfp import Envelope
 from producer.kafka_sink import PRODUCER_CONFIG, create_topic
 from transit_platform.config import DatabaseSettings, ProcessorSettings, StreamSettings
@@ -71,7 +78,9 @@ class StorageSink:
         self.conn = conn
         self.settings = settings
         self.hooks = hooks or Hooks()
-        self.known_days: set = set()
+        days = upcoming_days(datetime.now(UTC).date())
+        ensure_partitions(conn, days)
+        self.known_days: set[date] = set(days)
 
     def run(self, stop: threading.Event) -> None:
         while not stop.is_set():

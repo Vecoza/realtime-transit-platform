@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import psycopg
@@ -7,7 +7,7 @@ import pytest
 from gtfs.download import FeedFile
 from gtfs.loader import load_feed
 from processor.decode import Event, decode
-from processor.store import ensure_partitions, event_days, write_events
+from processor.store import ensure_partitions, event_days, upcoming_days, write_events
 from producer.hfp import Envelope
 from tests.conftest import GTFS_FIXTURE, zip_feed
 from tests.hfp_events import hfp_envelope
@@ -182,3 +182,19 @@ def test_feed_current_on_the_operating_day_is_used(
 
     feeds = [row["feed_id"] for row in position(conn)]
     assert feeds == [first.feed_id, second.feed_id]
+
+
+def test_partitions_are_created_ahead_and_creation_is_idempotent(
+    conn: psycopg.Connection,
+) -> None:
+    days = upcoming_days(date(2030, 1, 30))
+
+    ensure_partitions(conn, days)
+    ensure_partitions(conn, days)
+
+    names = conn.execute(
+        "SELECT relname FROM pg_class WHERE relname ~ '_20300(1|2)[0-9]{2}$' ORDER BY 1"
+    ).fetchall()
+    assert len(days) == 8
+    assert [name for (name,) in names][:2] == ["stop_events_20300130", "stop_events_20300131"]
+    assert len(names) == 16

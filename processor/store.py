@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, date
+from datetime import UTC, date, timedelta
 
 import psycopg
 
@@ -207,6 +207,11 @@ class WriteResult:
 
 def event_days(events: Iterable[Event]) -> set[date]:
     return {event.tst.astimezone(UTC).date() for event in events}
+
+
+def upcoming_days(today: date, ahead: int = 7) -> list[date]:
+    """Today and the next ``ahead`` days, so partitions exist before the first event arrives."""
+    return [today + timedelta(days=n) for n in range(ahead + 1)]
 
 
 def ensure_partitions(conn: psycopg.Connection, days: Iterable[date]) -> None:

@@ -1,0 +1,153 @@
+# Stream processor (storage sink): design notes
+
+The sink is the consumer group `sink` on `hfp.raw`. It turns raw envelopes into validated, deduplicated, timetable-matched rows in PostgreSQL. Anything it cannot use goes to the dead-letter topic `hfp.dlq` with a reason, so no message disappears silently.
+
+```
+hfp.raw ──▶ consume batch ──▶ drop copies in batch ──▶ validate ──▶ invalid ──▶ hfp.dlq (flushed)
+                                                          │
+                                                          ▼ valid
+                   COPY to staging ──▶ match journeys ──▶ INSERT … ON CONFLICT DO NOTHING
+                                                          │
+                                         metrics row ──▶ COMMIT ──▶ commit Kafka offsets
+```
+
+## Delivery: at least once, stored exactly once
+
+Offsets are committed manually and only after the database transaction has committed. Two crash windows follow from that order, and both are safe:
+
+| Crash | Effect on restart | Why it is safe |
+|---|---|---|
+| Before the database commit | The batch is consumed again | The transaction rolled back, so nothing of it was stored: **no loss** |
+| After the database commit, before the offset commit | The batch is consumed again | Every row is already there; the unique key turns each insert into a no-op: **no duplicates** |
+
+The dead-letter topic is flushed before the database commit. In the second crash window a rejected message can therefore be dead-lettered twice. The dead-letter topic is at least once, which is acceptable for a topic that people read to investigate.
+
+Rebalances need no special handling. The loop is single-threaded and commits synchronously at the end of each batch. Partitions are only revoked inside `consume`, so there is never an uncommitted batch at that point. The group uses `cooperative-sticky` assignment, so a rebalance only moves the partitions that change owner.
+
+## Deduplication
+
+The unique key is the partition column plus what identifies one distinct message:
+
+| Table | Primary key |
+|---|---|
+| `rt.vehicle_positions` | `(operator_id, vehicle_number, tst, payload_hash)` |
+| `rt.stop_events` | `(operator_id, vehicle_number, event_type, tst, payload_hash)` |
+
+- The vehicle comes from the topic (`operator_id/vehicle_number`, the owner), as in the message key.
+- `tst` is the partition column, so PostgreSQL can enforce the key per partition.
+- `payload_hash` is a 16-byte BLAKE2b of the raw payload text. Exact copies collide and are dropped. Two different positions with the same `tst` are kept: metros report `tst` in whole seconds, and a key without the hash would silently drop real positions. In the positions table the event type is implied by the table.
+
+Copies are removed twice. Within a batch, before decoding, using `(topic, payload)`; this saves validation and database work, since most copies arrive within the same second. Across batches and restarts, the primary key with `ON CONFLICT DO NOTHING` catches the rest.
+
+On the 30-minute Saturday recording (1,982,660 messages), **557,220 messages (28.1%) were duplicates**. 1,425,440 rows were stored and none were invalid.
+
+## Validation and the dead-letter topic
+
+Each payload is parsed and validated in one step by pydantic (`{"VP": {…}}` with `extra="forbid"`). Rejections carry one of these reasons:
+
+| Reason | Example |
+|---|---|
+| `invalid_envelope` | The Kafka value is not an envelope |
+| `unexpected_topic` | Not an HFP v2 `vp`/`arr`/`dep` topic |
+| `invalid_json` | Payload cut off mid-JSON |
+| `unexpected_payload_shape` | Topic says `arr`, payload is `{"VP": …}` |
+| `schema_violation` | `lat` is a string, `hdg` 400, `dir` "3", `veh` missing |
+| `tst_out_of_range` | Event time more than a day before or ten minutes after `received_at` |
+
+The last rule keeps nonsense timestamps out of the daily partitions. A dead letter holds the reason, a short detail, the source topic, partition and offset, and the original envelope.
+
+## Trip identity and matching
+
+The durable identity of an HFP trip is **(route, direction, operating day, scheduled start)**. It is stored on every row, together with the `trip_id` and `feed_id` it was matched to:
+
+- `route_id`: HFP `route`, which equals GTFS `route_id`.
+- `direction_id`: HFP `dir` minus one, stored in GTFS convention (0/1).
+- `oday`: HFP operating day.
+- `start_time`: HFP `start` as given (`HH:mm`, 24-hour local).
+- `start_offset_seconds`: the same start as a GTFS offset on `oday`. HFP reports a trip that starts at `25:10` in GTFS as `01:10`. When `start` read on `oday` lies more than 12 hours before the event, the trip started after midnight and a day is added.
+
+The feed is the one that was current on the operating day (`gtfs.feed_for_service_date`): among the versions whose validity covers `oday`, the latest one loaded before `oday` ended. The trip is the one in that feed with the same route and direction, a start within that minute, and a service that runs on `oday` according to `gtfs.service_dates`. For `arr` and `dep`, the stop is the occurrence of the event's stop on that trip whose planned time is closest to `tst`; trips can visit a stop twice. The planned time is the arrival offset for `arr` and the departure offset for `dep`, converted with `gtfs.to_utc(oday, offset)`.
+
+Matching is set-based. Rows are copied into a temporary staging table, and the distinct journeys of the batch (about 750 in 5,000 messages) are matched once each. The feed is looked up once per distinct operating day. Rows that do not match are stored anyway with a reason:
+
+| `match_status` | Meaning |
+|---|---|
+| `matched` | Trip found (and, for stop events, the stop on it) |
+| `missing_journey` | Route, direction, operating day or start missing in the message |
+| `no_feed` | No loaded feed covers the operating day |
+| `route_not_in_feed` | The feed has no such route |
+| `no_trip` | The route exists, but no trip with that direction and start runs that day |
+| `missing_stop` | Stop event without a stop id (stop events only) |
+| `stop_not_on_trip` | The trip does not serve that stop (stop events only) |
+
+Saturday recording, matched against the 24 October build:
+
+| Table | Rows | Matched | Not matched |
+|---|---:|---:|---|
+| `rt.vehicle_positions` | 1,396,803 | 99.81% | 2,683 `route_not_in_feed` |
+| `rt.stop_events` | 28,637 | 99.94% (trip and stop) | 17 `route_not_in_feed` |
+
+All unmatched rows come from two HFP routes that do not exist in GTFS: `3002X3` (a train) and `1009TX` (a tram).
+
+HSL's own scheduled times (`ttarr`/`ttdep`) are an independent check of the matching. They equal the planned time found through the GTFS feed for **98.9% of arrivals and 99.0% of departures**. The remaining 291 events are all buses and differ by whole minutes, mostly with the GTFS time earlier. The cause is not established. The likeliest explanation is that the vehicle's onboard timetable comes from a different build than the loaded feed.
+
+## Two delays, side by side
+
+Stop events store both:
+
+- `delay_seconds = tst − planned_time`: the platform's delay, positive when late.
+- `hfp_schedule_offset_s`: HSL's `dl` as received, where negative means late.
+
+They measure different moments. For matched events with both values, the difference `delay_seconds − (−dl)` is:
+
+| Event | Events | Median | p10 | p90 | Same sign when more than 60 s off |
+|---|---:|---:|---:|---:|---:|
+| `arr` | 14,096 | −29 s | −75 s | +13 s | 97.3% |
+| `dep` | 14,103 | +16 s | +4 s | +34 s | 99.7% |
+
+`arr` is sent when a vehicle enters the stop radius, about half a minute before the moment HSL's offset refers to, so the platform's arrival delay reads about 30 s lower. `dep` is sent after the vehicle leaves the radius, so the departure delay reads about 16 s higher. Analyses use `delay_seconds`, whose reference point is defined by the timetable. `dl` stays available to compare against.
+
+## Partitions
+
+Both tables are range-partitioned by `tst` on UTC days (`rt.vehicle_positions_20261024` holds `[2026-10-24 00:00Z, 2026-10-25 00:00Z)`). `oday` is a separate column. A night bus at 01:10 local time on 25 October with `oday` 24 October lies in the 24 October UTC partition, and service-day queries filter on `oday` instead. `rt.ensure_day_partitions(first, last)` creates missing partitions idempotently. The sink calls it in its own short transaction for every event day it has not seen yet. A `DEFAULT` partition exists as a safety net; the `tst_out_of_range` rule keeps it empty, and a non-empty default partition means something is wrong.
+
+## Batching and metrics
+
+A batch is up to 5,000 messages or 500 ms, whichever comes first. Live, at about 800–1,100 messages per second, the time limit decides (about 800 messages per batch). In a replay or catch-up, the count limit decides. Each batch writes one row to `meta.consumer_metrics` in the same transaction as its data: messages, inserted, duplicates, invalid, unmatched, consumer lag, the time spent consuming, decoding and writing, and the p50/p95 of `stored_at − tst` for the inserted rows. The check `inserted + duplicates + invalid = messages` holds for every batch.
+
+## Measured
+
+Docker Desktop on a MacBook, PostgreSQL 16 with default settings (128 MB `shared_buffers`), Redpanda single node, one sink process.
+
+**Throughput.** The 30-minute Saturday recording was replayed into a fresh topic, then consumed from the beginning:
+
+| Version | Messages/s | Decode per batch | Database per batch |
+|---|---:|---:|---:|
+| First version | 3,885 | 420 ms | 829 ms |
+| Feed looked up once per day, copies dropped before the database, payload parsed by pydantic | **7,473** | 263 ms | 370 ms |
+
+The first version evaluated the feed lookup once per output row instead of once per operating day, because PostgreSQL inlined the lateral subquery into the projection. `EXPLAIN ANALYZE` showed about half of the insert's 940 ms going there. Materialising the `feeds` and `matches` CTEs fixed it. Dropping copies inside the batch removed 28% of the rows before validation and before the unique-index probes. 7,473 messages per second is about seven times the live rate.
+
+**End-to-end latency against the live feed** (Saturday 24 October, 16:30 Helsinki time, 5 minutes, 238,714 stored rows; producer and sink running together):
+
+| | p50 | p95 | p99 |
+|---|---:|---:|---:|
+| Event time → stored (`stored_at − tst`) | 0.52 s | 1.11 s | 1.93 s |
+| Received → stored (`stored_at − received_at`) | 0.56 s | 1.09 s | |
+| Event time → received (`received_at − tst`) | −0.05 s | 0.11 s | |
+
+The platform's own share is dominated by the 500 ms batch window plus the producer's 50 ms linger. The source is usually fast, but not always. 188 bus positions arrived more than a minute after their `tst`, the latest 2 minutes 53 seconds after, when vehicles sent buffered messages in a burst. Those late events are what the event-time aggregation has to handle.
+
+## Crash tests
+
+**Automated, in CI.** The fixture is replayed into a fresh topic and the sink is interrupted at an exact point by raising an exception there, which closes the consumer without committing offsets, as a dying process would:
+
+| Test | Result |
+|---|---|
+| Crash after the database commit, before the offset commit; restart | The interrupted batch is consumed twice (`sum(messages)` in the metrics exceeds the fixture). The tables hold exactly the expected rows: **no duplicates** |
+| Crash before the database commit; restart | Nothing is stored after the crash; after the restart every expected row is there: **no loss** |
+| Replay the whole fixture a second time | Row counts unchanged; every message of the second pass counts as a duplicate |
+
+**Manual, with real processes.** The sink consumed the 1,982,660-message Saturday topic and was killed with `kill -9` six times, 19 to 39 seconds after each start. It was then left to finish until the lag was zero. The result was identical to the uninterrupted run: 1,396,803 positions and 28,637 stop events, with every message accounted for exactly once in `meta.consumer_metrics`.
+
+One effect showed up that the automated tests do not show. After a `kill -9`, the dead consumer keeps its partitions until the group's session timeout (45 s by default) expires, so a restart within that time waits. Three of the six restarts made no progress for that reason. Static group membership (`group.instance.id`) would let a restarted instance take its partitions back at once.

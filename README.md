@@ -30,7 +30,7 @@ Downloads HSL's static timetable in GTFS format (routes, trips, stops and schedu
 Subscribes to HSL's live MQTT feed and publishes every message to a Kafka-compatible event stream (Redpanda). It can also record the live stream to files and replay it later at any speed, which makes development and testing independent of the live feed. Messages are keyed by vehicle, so each vehicle's events stay in order. An idempotent producer means retries never duplicate a message, and a replay of the same recording always produces exactly the same topic contents. On a Saturday afternoon the feed delivers about 1,100 messages per second, more than a quarter of them duplicates. A single producer process can publish about 28,000 per second.
 
 **3. Stream processor**
-Consumes the stream, validates every message against a schema, removes duplicates, enriches positions with timetable data, and writes them to PostgreSQL. Invalid messages go to a dead-letter topic instead of being lost. Writes are idempotent and offsets are committed only after the data is stored, so a crash never loses or duplicates data.
+Consumes the stream, validates every message against a schema, removes duplicates, enriches positions with timetable data, and writes them to PostgreSQL. Invalid messages go to a dead-letter topic instead of being lost. Writes are idempotent and offsets are committed only after the data is stored, so a crash never loses or duplicates data. Every event keeps the durable identity of its trip (route, direction, operating day and scheduled start) together with the matching trip in the timetable that was valid that day. Arrivals and departures also get their planned time and a delay computed by the platform, stored next to the operator's own delay value. On a 30-minute Saturday sample, 28% of all messages were duplicates and 99.8% of the stored events matched a scheduled trip. The processor stores about 7,500 messages per second, and live events are in the database about half a second after the vehicle sent them (p95 1.1 s).
 
 **4. Real-time aggregation**
 Aggregates arrivals and positions in event-time windows (per line, per stop, per minute), with explicit handling of late-arriving messages.
@@ -90,7 +90,7 @@ realtime-transit-platform/
 - [x] Project foundation, containerized database and event stream, continuous integration
 - [x] Timetable loader (GTFS)
 - [x] Stream producer with record and replay
-- [ ] Stream processor: validation, deduplication, enrichment, dead-letter topic
+- [x] Stream processor: validation, deduplication, enrichment, dead-letter topic
 - [ ] Event-time aggregation with late data handling
 - [ ] Partitioned storage, Parquet archive and analytical models
 - [ ] Monitoring dashboards

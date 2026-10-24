@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from functools import lru_cache
@@ -46,6 +45,29 @@ class HfpPayload(BaseModel):
     @classmethod
     def number_to_text(cls, value: Any) -> Any:
         return str(value) if isinstance(value, int) and not isinstance(value, bool) else value
+
+
+class VpDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    VP: HfpPayload
+
+
+class ArrDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    ARR: HfpPayload
+
+
+class DepDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    DEP: HfpPayload
+
+
+DOCUMENTS: dict[str, type[BaseModel]] = {
+    "vp": VpDocument,
+    "arr": ArrDocument,
+    "dep": DepDocument,
+}
+SHAPE_ERRORS = {"missing", "extra_forbidden", "model_type"}
 
 
 @dataclass(frozen=True)
@@ -107,16 +129,10 @@ def decode(envelope: Envelope) -> Event | Rejection:
         return Rejection("unexpected_topic", envelope.topic)
 
     try:
-        document = json.loads(envelope.payload)
-    except json.JSONDecodeError as error:
-        return Rejection("invalid_json", str(error))
-    expected_key = EVENT_KEYS[info.event_type]
-    if not isinstance(document, dict) or list(document) != [expected_key]:
-        return Rejection("unexpected_payload_shape", f"expected a single {expected_key} object")
-    try:
-        payload = HfpPayload.model_validate(document[expected_key])
+        document = DOCUMENTS[info.event_type].model_validate_json(envelope.payload)
     except ValidationError as error:
-        return Rejection("schema_violation", _short(error))
+        return _rejection(error, EVENT_KEYS[info.event_type])
+    payload: HfpPayload = getattr(document, EVENT_KEYS[info.event_type])
 
     received_at = envelope.received_datetime
     if not received_at - MAX_EVENT_AGE <= payload.tst <= received_at + MAX_CLOCK_AHEAD:
@@ -143,6 +159,16 @@ def _next_stop(topic: str) -> str | None:
     levels = topic.split("/")
     value = levels[13] if len(levels) > 13 else ""
     return value if value and value != "EOL" else None
+
+
+def _rejection(error: ValidationError, expected_key: str) -> Rejection:
+    """Map pydantic errors on the whole document to the platform's rejection reasons."""
+    first = error.errors()[0]
+    if first["type"] == "json_invalid":
+        return Rejection("invalid_json", first["msg"])
+    if first["type"] in SHAPE_ERRORS and len(first["loc"]) <= 1:
+        return Rejection("unexpected_payload_shape", f"expected a single {expected_key} object")
+    return Rejection("schema_violation", _short(error))
 
 
 def _short(error: ValidationError) -> str:

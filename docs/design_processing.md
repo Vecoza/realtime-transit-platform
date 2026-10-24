@@ -56,6 +56,8 @@ Each payload is parsed and validated in one step by pydantic (`{"VP": {…}}` wi
 
 The last rule keeps nonsense timestamps out of the daily partitions. A dead letter holds the reason, a short detail, the source topic, partition and offset, and the original envelope.
 
+The real feed is clean by these rules. The Saturday replay (1,982,660 messages) and the five-minute live run left the dead-letter topic empty: zero messages for every reason. What the feed does send is incomplete data inside a valid shape, which is stored, not rejected: 9,831 positions (0.7%) without coordinates and 15,366 without speed. The reasons themselves are covered by the tests with constructed messages, one per rule.
+
 ## Trip identity and matching
 
 The durable identity of an HFP trip is **(route, direction, operating day, scheduled start)**. It is stored on every row, together with the `trip_id` and `feed_id` it was matched to:

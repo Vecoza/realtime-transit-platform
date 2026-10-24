@@ -33,7 +33,7 @@ Subscribes to HSL's live MQTT feed and publishes every message to a Kafka-compat
 Consumes the stream, validates every message against a schema, removes duplicates, enriches positions with timetable data, and writes them to PostgreSQL. Invalid messages go to a dead-letter topic instead of being lost. Writes are idempotent and offsets are committed only after the data is stored, so a crash never loses or duplicates data. Every event keeps the durable identity of its trip (route, direction, operating day and scheduled start) together with the matching trip in the timetable that was valid that day. Arrivals and departures also get their planned time and a delay computed by the platform, stored next to the operator's own delay value. On a 30-minute Saturday sample, 28% of all messages were duplicates and 99.8% of the stored events matched a scheduled trip. The processor stores about 7,500 messages per second, and live events are in the database about half a second after the vehicle sent them (p95 1.1 s).
 
 **4. Real-time aggregation**
-Aggregates arrivals and positions in event-time windows (per line, per stop, per minute), with explicit handling of late-arriving messages.
+A second, independent consumer of the same stream computes per-minute statistics by event time: active vehicles and delay per line and direction, arrivals and delay per stop, and which vehicles have gone silent. How long to wait for late messages is taken from the measured data: 99.6% of messages arrive within ten seconds, and most of the rest are bursts from vehicles that lost their connection and later send what they buffered. Each minute is therefore published ten seconds after it ends, and later messages correct it for up to ten minutes. A duplicate or a message consumed again after a crash never counts twice, because every minute keeps the identities of its events and is always rewritten in full. After a restart the open minutes are rebuilt from the stored events. The streamed results equal a batch recomputation in SQL over the same data, also when the process is killed in the middle of a replay.
 
 **5. Storage lifecycle and analytics**
 Recent data lives in daily-partitioned PostgreSQL tables for fast queries. Older partitions are exported to Parquet files and dropped, keeping the operational database small while the full history stays queryable with DuckDB. dbt models turn the data into analytical marts: on-time performance, delay by stop and hour, and vehicle bunching.
@@ -91,7 +91,7 @@ realtime-transit-platform/
 - [x] Timetable loader (GTFS)
 - [x] Stream producer with record and replay
 - [x] Stream processor: validation, deduplication, enrichment, dead-letter topic
-- [ ] Event-time aggregation with late data handling
+- [x] Event-time aggregation with late data handling
 - [ ] Partitioned storage, Parquet archive and analytical models
 - [ ] Monitoring dashboards
 - [ ] Documentation: architecture, design notes and results
@@ -99,6 +99,9 @@ realtime-transit-platform/
 ## Possible improvements
 
 - **Faster `shapes` and `trips` loads.** Together they take about 55 of the 173 seconds of a full timetable load, mostly spent on per-row foreign key checks. Partitioning them by feed version like `stop_times` would let each version load into a plain table and be attached afterwards, with the index built in one pass and the foreign keys checked in one query.
+
+- **Timing points.** HSL's timetable marks the stops whose times are binding (`timepoint`); times between them are approximate. Loading that flag would let punctuality be measured where it is defined.
+- **More than one aggregator.** A line's vehicles are spread over all partitions of the raw topic, so one aggregator reads all of them. Republishing the events keyed by line would let several instances share the work.
 
 ## Data source
 

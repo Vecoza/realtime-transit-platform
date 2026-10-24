@@ -1,0 +1,384 @@
+"""Event-time windows: watermark, one-minute tumbling windows, late events, stale vehicles.
+
+Everything here is in memory and free of I/O, so the rules can be tested on their own:
+
+- The watermark is the minimum over partitions of the highest event time each partition
+  has delivered. A window closes, and is emitted, when the watermark passes its end plus
+  the allowed lateness.
+- A window keeps every event it counted, keyed by the event's identity, so a copy or a
+  replayed message is recognised and never counted twice. Results are always computed in
+  full from that state.
+- An event for a closed window is late: it is added and the window is emitted again as a
+  correction. Once the watermark is the correction horizon past a window's end, the window
+  is forgotten and events for it are dropped.
+- A vehicle on a trip that has sent nothing for ``stale_after`` of event time is stale.
+"""
+
+from __future__ import annotations
+
+import enum
+import math
+import struct
+import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from datetime import time as clock_time
+from typing import NamedTuple
+
+from processor.decode import Event
+
+MINUTE = timedelta(minutes=1)
+
+
+@dataclass(frozen=True)
+class WindowRules:
+    allowed_lateness: timedelta = timedelta(seconds=10)
+    correction_horizon: timedelta = timedelta(minutes=10)
+    idle_timeout_s: float = 30.0
+    stale_after: timedelta = timedelta(minutes=2)
+
+
+class RouteWindow(NamedTuple):
+    route_id: str
+    direction_id: int
+    start: datetime
+
+
+class StopWindow(NamedTuple):
+    stop_id: str
+    start: datetime
+
+
+WindowKey = RouteWindow | StopWindow
+
+
+class Outcome(enum.StrEnum):
+    APPLIED = "applied"
+    LATE = "late"
+    DUPLICATE = "duplicate"
+    DROPPED = "dropped"
+    NO_WINDOW = "no_window"
+
+
+@dataclass(frozen=True)
+class RouteMinute:
+    route_id: str
+    direction_id: int
+    window_start: datetime
+    vehicles: int
+    positions: int
+    delay_samples: int
+    avg_delay_s: float | None
+    p90_delay_s: float | None
+    late_events: int
+
+
+@dataclass(frozen=True)
+class StopMinute:
+    stop_id: str
+    window_start: datetime
+    arrivals: int
+    delay_samples: int
+    avg_delay_s: float | None
+    late_events: int
+
+
+@dataclass(frozen=True)
+class LateEvent:
+    event: Event
+    window: WindowKey
+    watermark: datetime
+    outcome: str
+
+
+@dataclass
+class WindowState:
+    """Counted events by identity: vehicle and delay (seconds late, from HSL's ``dl``)."""
+
+    events: dict[bytes, tuple[int, int | None]] = field(default_factory=dict)
+    late: set[bytes] = field(default_factory=set)
+    emitted: bool = False
+    changed: bool = True
+
+
+@dataclass
+class VehicleState:
+    operator_id: int
+    vehicle_number: int
+    last_tst: datetime
+    last_received_at: datetime
+    transport_mode: str
+    route_id: str | None
+    direction_id: int | None
+    oday: date | None
+    start_time: clock_time | None
+    lat: float | None
+    lon: float | None
+    status: str = "active"
+    stale_since: datetime | None = None
+
+
+@dataclass
+class Emission:
+    routes: list[RouteMinute] = field(default_factory=list)
+    stops: list[StopMinute] = field(default_factory=list)
+    vehicles: list[VehicleState] = field(default_factory=list)
+    stale: int = 0
+
+
+def event_key(operator_id: int, vehicle_number: int, payload_hash: bytes) -> bytes:
+    """The identity of an event inside a window: the unique key of the stored row."""
+    return payload_hash + struct.pack(">HI", operator_id, vehicle_number)
+
+
+def vehicle_id(operator_id: int, vehicle_number: int) -> int:
+    return operator_id * 100_000 + vehicle_number
+
+
+def minute_start(moment: datetime) -> datetime:
+    return moment.replace(second=0, microsecond=0)
+
+
+def window_of(event: Event) -> WindowKey | None:
+    """Positions count towards their route and direction, arrivals towards their stop."""
+    p = event.payload
+    start = minute_start(event.tst)
+    if event.event_type == "vp" and p.route is not None and event.direction_id is not None:
+        return RouteWindow(p.route, event.direction_id, start)
+    if event.event_type == "arr" and p.stop is not None:
+        return StopWindow(p.stop, start)
+    return None
+
+
+def delay_of(dl: int | None) -> int | None:
+    """Seconds behind schedule; HSL's ``dl`` is negative when the vehicle is late."""
+    return None if dl is None else -dl
+
+
+def percentile_cont(ordered: list[int], fraction: float) -> float | None:
+    """Linear interpolation between the closest ranks, as PostgreSQL's percentile_cont."""
+    if not ordered:
+        return None
+    position = fraction * (len(ordered) - 1)
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    return ordered[lower] + (position - lower) * (ordered[upper] - ordered[lower])
+
+
+def route_minute(window: RouteWindow, state: WindowState) -> RouteMinute:
+    delays = sorted(delay for _, delay in state.events.values() if delay is not None)
+    return RouteMinute(
+        route_id=window.route_id,
+        direction_id=window.direction_id,
+        window_start=window.start,
+        vehicles=len({vehicle for vehicle, _ in state.events.values()}),
+        positions=len(state.events),
+        delay_samples=len(delays),
+        avg_delay_s=sum(delays) / len(delays) if delays else None,
+        p90_delay_s=percentile_cont(delays, 0.9),
+        late_events=len(state.late),
+    )
+
+
+def stop_minute(window: StopWindow, state: WindowState) -> StopMinute:
+    delays = [delay for _, delay in state.events.values() if delay is not None]
+    return StopMinute(
+        stop_id=window.stop_id,
+        window_start=window.start,
+        arrivals=len(state.events),
+        delay_samples=len(delays),
+        avg_delay_s=sum(delays) / len(delays) if delays else None,
+        late_events=len(state.late),
+    )
+
+
+@dataclass
+class PartitionProgress:
+    max_event_time: datetime | None
+    last_seen: float
+
+
+class Watermark:
+    """The minimum over partitions of the highest event time each has delivered.
+
+    Event time is capped at the moment the producer received the message, so a vehicle
+    whose clock runs ahead cannot push the watermark forward. A partition that has delivered
+    nothing for ``idle_timeout_s`` of processing time is left out, so a quiet partition does
+    not stall the others; when every partition is idle, the highest one counts. The
+    watermark never moves back.
+    """
+
+    def __init__(self, idle_timeout_s: float, clock: Callable[[], float] = time.monotonic):
+        self.idle_timeout_s = idle_timeout_s
+        self.clock = clock
+        self.partitions: dict[int, PartitionProgress] = {}
+        self.value: datetime | None = None
+
+    def assign(self, partitions: Iterable[int], max_event_times: dict[int, datetime]) -> None:
+        """Track newly assigned partitions; partitions already tracked keep their progress."""
+        now = self.clock()
+        for partition in partitions:
+            if partition not in self.partitions:
+                self.partitions[partition] = PartitionProgress(max_event_times.get(partition), now)
+
+    def observe(self, partition: int, tst: datetime, received_at: datetime) -> None:
+        progress = self.partitions.setdefault(partition, PartitionProgress(None, self.clock()))
+        moment = min(tst, received_at)
+        if progress.max_event_time is None or moment > progress.max_event_time:
+            progress.max_event_time = moment
+        progress.last_seen = self.clock()
+
+    def idle(self) -> set[int]:
+        now = self.clock()
+        return {
+            partition
+            for partition, progress in self.partitions.items()
+            if now - progress.last_seen >= self.idle_timeout_s
+        }
+
+    def advance(self) -> datetime | None:
+        idle = self.idle()
+        active = [p for partition, p in self.partitions.items() if partition not in idle]
+        if active:
+            if any(p.max_event_time is None for p in active):
+                return self.value
+            candidate = min(p.max_event_time for p in active)
+        else:
+            known = [p.max_event_time for p in self.partitions.values() if p.max_event_time]
+            if not known:
+                return self.value
+            candidate = max(known)
+        if self.value is None or candidate > self.value:
+            self.value = candidate
+        return self.value
+
+
+class WindowAggregator:
+    """Per-minute route and stop windows over event time, with corrections for late events."""
+
+    def __init__(self, rules: WindowRules, watermark: Watermark) -> None:
+        self.rules = rules
+        self.watermark = watermark
+        self.windows: dict[WindowKey, WindowState] = {}
+        self.vehicles: dict[int, VehicleState] = {}
+        self.changed_vehicles: set[int] = set()
+        self.late_events: list[LateEvent] = []
+
+    def add(self, event: Event, partition: int) -> Outcome:
+        self.watermark.observe(partition, event.tst, event.received_at)
+        self._track_vehicle(event)
+        window = window_of(event)
+        if window is None:
+            return Outcome.NO_WINDOW
+        end = window.start + MINUTE
+        watermark = self.watermark.value
+        key = event_key(event.operator_id, event.vehicle_number, event.payload_hash)
+        state = self.windows.get(window)
+        if state is not None and key in state.events:
+            return Outcome.DUPLICATE
+        if watermark is not None and watermark >= end + self.rules.correction_horizon:
+            self.late_events.append(LateEvent(event, window, watermark, "dropped"))
+            return Outcome.DROPPED
+        if state is None:
+            state = self.windows[window] = WindowState()
+        state.events[key] = (
+            vehicle_id(event.operator_id, event.vehicle_number),
+            delay_of(event.payload.dl),
+        )
+        state.changed = True
+        if watermark is not None and watermark >= end + self.rules.allowed_lateness:
+            state.late.add(key)
+            self.late_events.append(LateEvent(event, window, watermark, "corrected"))
+            return Outcome.LATE
+        return Outcome.APPLIED
+
+    def advance(self) -> Emission:
+        """Move the watermark; emit closed windows and corrections, forget old windows."""
+        watermark = self.watermark.advance()
+        emission = Emission()
+        if watermark is None:
+            return self._vehicles_into(emission)
+        for window, state in list(self.windows.items()):
+            end = window.start + MINUTE
+            if watermark >= end + self.rules.allowed_lateness and state.changed:
+                if isinstance(window, RouteWindow):
+                    emission.routes.append(route_minute(window, state))
+                else:
+                    emission.stops.append(stop_minute(window, state))
+                state.emitted = True
+                state.changed = False
+            if watermark >= end + self.rules.correction_horizon:
+                del self.windows[window]
+        for vid, vehicle in self.vehicles.items():
+            due = vehicle.last_tst + self.rules.stale_after
+            if vehicle.status == "active" and vehicle.route_id is not None and watermark >= due:
+                vehicle.status = "stale"
+                vehicle.stale_since = due
+                self.changed_vehicles.add(vid)
+                emission.stale += 1
+        return self._vehicles_into(emission)
+
+    def take_late_events(self) -> list[LateEvent]:
+        late, self.late_events = self.late_events, []
+        return late
+
+    def retained_events(self) -> int:
+        return sum(len(state.events) for state in self.windows.values())
+
+    def open_windows(self) -> int:
+        return sum(1 for state in self.windows.values() if not state.emitted)
+
+    def restore_window(
+        self,
+        window: WindowKey,
+        events: dict[bytes, tuple[int, int | None]],
+        late: set[bytes],
+        emitted: bool,
+    ) -> None:
+        """Put back a window rebuilt from stored data; emitted windows are checked again."""
+        self.windows[window] = WindowState(events, late, emitted, changed=True)
+
+    def restore_vehicle(self, vehicle: VehicleState) -> None:
+        self.vehicles[vehicle_id(vehicle.operator_id, vehicle.vehicle_number)] = vehicle
+
+    def _track_vehicle(self, event: Event) -> None:
+        vid = vehicle_id(event.operator_id, event.vehicle_number)
+        vehicle = self.vehicles.get(vid)
+        if vehicle is not None and event.tst <= vehicle.last_tst:
+            return
+        p = event.payload
+        if vehicle is None:
+            vehicle = self.vehicles[vid] = VehicleState(
+                event.operator_id,
+                event.vehicle_number,
+                event.tst,
+                event.received_at,
+                event.transport_mode,
+                p.route,
+                event.direction_id,
+                p.oday,
+                p.start,
+                p.lat,
+                p.long,
+            )
+        else:
+            vehicle.last_tst = event.tst
+            vehicle.last_received_at = event.received_at
+            vehicle.route_id = p.route
+            vehicle.direction_id = event.direction_id
+            vehicle.oday = p.oday
+            vehicle.start_time = p.start
+            if p.lat is not None and p.long is not None:
+                vehicle.lat, vehicle.lon = p.lat, p.long
+            vehicle.status = "active"
+            vehicle.stale_since = None
+        self.changed_vehicles.add(vid)
+
+    def _vehicles_into(self, emission: Emission) -> Emission:
+        emission.vehicles = [self.vehicles[vid] for vid in sorted(self.changed_vehicles)]
+        self.changed_vehicles.clear()
+        for vehicle in emission.vehicles:
+            if vehicle.status == "stale":
+                del self.vehicles[vehicle_id(vehicle.operator_id, vehicle.vehicle_number)]
+        return emission

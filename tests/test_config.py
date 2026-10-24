@@ -19,3 +19,18 @@ def test_stream_settings_read_bootstrap_servers(monkeypatch):
 def test_source_port_is_integer(monkeypatch):
     monkeypatch.setenv("HSL_MQTT_PORT", "1883")
     assert SourceSettings.from_env().mqtt_port == 1883
+
+
+def test_source_subscribes_to_ongoing_journeys_of_each_event_type(monkeypatch):
+    monkeypatch.setenv("HFP_EVENT_TYPES", "vp, arr,,dep")
+    assert SourceSettings.from_env().mqtt_topics == [
+        "/hfp/v2/journey/ongoing/vp/#",
+        "/hfp/v2/journey/ongoing/arr/#",
+        "/hfp/v2/journey/ongoing/dep/#",
+    ]
+
+
+def test_stream_settings_default_to_the_raw_topic(monkeypatch):
+    monkeypatch.delenv("HFP_RAW_TOPIC", raising=False)
+    settings = StreamSettings.from_env()
+    assert (settings.raw_topic, settings.raw_partitions) == ("hfp.raw", 6)

@@ -51,23 +51,44 @@ class DatabaseSettings:
 @dataclass(frozen=True)
 class StreamSettings:
     bootstrap_servers: str
+    raw_topic: str = "hfp.raw"
+    raw_partitions: int = 6
+    raw_retention_ms: int = 24 * 60 * 60 * 1000
 
     @classmethod
     def from_env(cls) -> StreamSettings:
-        return cls(bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092"))
+        return cls(
+            bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092"),
+            raw_topic=os.getenv("HFP_RAW_TOPIC", "hfp.raw"),
+            raw_partitions=int(os.getenv("HFP_RAW_PARTITIONS", "6")),
+            raw_retention_ms=int(os.getenv("HFP_RAW_RETENTION_MS", str(24 * 60 * 60 * 1000))),
+        )
 
 
 @dataclass(frozen=True)
 class SourceSettings:
     mqtt_host: str
     mqtt_port: int
+    event_types: tuple[str, ...] = ("vp", "arr", "dep")
+    recordings_dir: Path = Path("data/recordings")
 
     @classmethod
     def from_env(cls) -> SourceSettings:
         return cls(
             mqtt_host=os.getenv("HSL_MQTT_HOST", "mqtt.hsl.fi"),
             mqtt_port=int(os.getenv("HSL_MQTT_PORT", "8883")),
+            event_types=tuple(
+                event.strip()
+                for event in os.getenv("HFP_EVENT_TYPES", "vp,arr,dep").split(",")
+                if event.strip()
+            ),
+            recordings_dir=Path(os.getenv("RECORDINGS_DIR", "data/recordings")),
         )
+
+    @property
+    def mqtt_topics(self) -> list[str]:
+        """One subscription per event type, for ongoing journeys only."""
+        return [f"/hfp/v2/journey/ongoing/{event}/#" for event in self.event_types]
 
 
 @dataclass(frozen=True)

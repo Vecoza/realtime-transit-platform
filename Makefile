@@ -1,5 +1,5 @@
 .PHONY: help install up down logs psql topics check migrate migrate-down migrate-status gtfs-load \
-	lint format test test-unit test-db clean
+	produce lint format test test-unit test-db clean
 
 help:  ## Show available commands
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -37,6 +37,9 @@ migrate-status:  ## Show the current migration and the history
 
 gtfs-load:  ## Download the GTFS timetable and load it (FILE=path.zip loads a local zip)
 	python -m gtfs.load $(if $(FILE),--file $(FILE))
+
+produce:  ## Forward the live HSL feed to the raw topic
+	python -m producer.produce
 
 lint:  ## Run linter
 	ruff check .

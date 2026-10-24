@@ -11,6 +11,9 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "alembic>=1.13",
+    "certifi>=2024.7",
+    "confluent-kafka>=2.5",
+    "paho-mqtt>=2.1",
     "psycopg[binary]>=3.1",
     "SQLAlchemy>=2.0",
     "python-dotenv>=1.0",
@@ -25,12 +28,15 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
-include = ["transit_platform*", "gtfs*"]
+include = ["transit_platform*", "gtfs*", "producer*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
-markers = ["db: needs a running PostgreSQL server"]
+markers = [
+    "db: needs a running PostgreSQL server",
+    "stream: needs a running Kafka-compatible broker",
+]
 
 [tool.ruff]
 line-length = 100

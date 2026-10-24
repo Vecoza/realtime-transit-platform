@@ -40,9 +40,14 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints.txt
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          pip install -c constraints.txt -e ".[dev]"
+          pip check
 
       - name: Lint
         run: ruff check .

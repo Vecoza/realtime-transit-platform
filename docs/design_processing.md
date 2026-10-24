@@ -89,7 +89,13 @@ Saturday recording, matched against the 24 October build:
 
 All unmatched rows come from two HFP routes that do not exist in GTFS: `3002X3` (a train) and `1009TX` (a tram).
 
-HSL's own scheduled times (`ttarr`/`ttdep`) are an independent check of the matching. They equal the planned time found through the GTFS feed for **98.9% of arrivals and 99.0% of departures**. The remaining 291 events are all buses and differ by whole minutes, mostly with the GTFS time earlier. The cause is not established. The likeliest explanation is that the vehicle's onboard timetable comes from a different build than the loaded feed.
+HSL's own scheduled times (`ttarr`/`ttdep`) are an independent check of the matching. They equal the planned time found through the GTFS feed for **98.9% of arrivals and 99.0% of departures**. The remaining 291 events are all buses and differ by whole minutes, mostly one to three, with the GTFS time earlier. They are not wrong matches:
+
+- **Not ambiguous.** Every one of the 1,214 matched journeys has exactly one candidate trip with that route, direction, operating day and start, so the matching never has to pick between trips.
+- **Not another build.** The trip in the previous day's build has the same times; none of the 291 equals HSL's time there either.
+- **Approximate stops.** 284 of the 291 (97.6%) are at stops that GTFS marks `timepoint=0`, where the published times are approximate. On those stops 1.1% of events disagree, on timing points 0.3%. The differences appear at the same stops on consecutive trips of a route and are back to zero at the next timing point. HSL's vehicle timetable interpolates between timing points differently from its GTFS export.
+
+The platform's delay is therefore exact at timing points and can be off by a minute or two between them. The `timepoint` flag is not loaded yet; it is the column a punctuality analysis would filter on.
 
 ## Two delays, side by side
 

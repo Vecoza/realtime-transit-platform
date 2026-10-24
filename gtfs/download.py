@@ -13,9 +13,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import certifi
+
 logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 1 << 20
+TLS_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 @dataclass(frozen=True)
@@ -87,7 +90,7 @@ def _fetch(url: str, destination: Path, timeout_seconds: float) -> tuple[str, in
     digest = hashlib.sha256()
     size = 0
     with (
-        urllib.request.urlopen(url, timeout=timeout_seconds) as response,
+        urllib.request.urlopen(url, timeout=timeout_seconds, context=TLS_CONTEXT) as response,
         destination.open("wb") as handle,
     ):
         while chunk := response.read(CHUNK_SIZE):

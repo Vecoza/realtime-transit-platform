@@ -23,7 +23,7 @@ class FakeResponse(io.BytesIO):
 def fake_urlopen(outcomes: list[object]):
     calls: list[str] = []
 
-    def urlopen(url: str, timeout: float) -> FakeResponse:
+    def urlopen(url: str, timeout: float, context: object = None) -> FakeResponse:
         calls.append(url)
         outcome = outcomes.pop(0)
         if isinstance(outcome, Exception):

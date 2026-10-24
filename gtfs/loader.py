@@ -78,6 +78,7 @@ def load_feed(conn: psycopg.Connection, feed: FeedFile) -> LoadResult:
         create_stop_times_table(conn, feed_id)
         row_counts = publish_rows(conn, feed_id)
         attach_stop_times_table(conn, feed_id)
+        set_trip_start_offsets(conn, feed_id)
         row_counts["service_dates"] = expand_service_dates(conn, feed_id)
         analyze_tables(conn, feed_id)
         switch_current(conn, feed_id)
@@ -257,6 +258,24 @@ def publish_rows(conn: psycopg.Connection, feed_id: int) -> dict[str, int]:
             time.perf_counter() - started,
         )
     return counts
+
+
+def set_trip_start_offsets(conn: psycopg.Connection, feed_id: int) -> None:
+    """Departure offset of each trip's first stop: the scheduled start real-time events carry."""
+    conn.execute(
+        """
+        UPDATE gtfs.trips AS t
+        SET start_offset_seconds = first_stop.departure_offset_seconds
+        FROM (
+            SELECT DISTINCT ON (trip_id) trip_id, departure_offset_seconds
+            FROM gtfs.stop_times
+            WHERE feed_id = %(feed_id)s
+            ORDER BY trip_id, stop_sequence
+        ) AS first_stop
+        WHERE t.feed_id = %(feed_id)s AND t.trip_id = first_stop.trip_id
+        """,
+        {"feed_id": feed_id},
+    )
 
 
 def expand_service_dates(conn: psycopg.Connection, feed_id: int) -> int:

@@ -78,10 +78,10 @@ def conn(migrated: DatabaseSettings) -> Iterator[psycopg.Connection]:
     with psycopg.connect(migrated.conninfo) as connection:
         yield connection
         connection.rollback()
-        reset_gtfs(connection)
+        reset_data(connection)
 
 
-def reset_gtfs(conn: psycopg.Connection) -> None:
+def reset_data(conn: psycopg.Connection) -> None:
     with conn.transaction():
         partitions = conn.execute("""
             SELECT inhrelid::regclass::TEXT
@@ -91,6 +91,7 @@ def reset_gtfs(conn: psycopg.Connection) -> None:
         for (partition,) in partitions:
             conn.execute(f"DROP TABLE {partition}")
         conn.execute("TRUNCATE gtfs.feed_versions RESTART IDENTITY CASCADE")
+        conn.execute("TRUNCATE rt.vehicle_positions, rt.stop_events, meta.consumer_metrics")
 
 
 @pytest.fixture

@@ -1,5 +1,5 @@
 .PHONY: help install up down logs psql topics check migrate migrate-down migrate-status gtfs-load \
-	produce record replay process lint format test test-unit test-db clean
+	produce record replay process aggregate lint format test test-unit test-db clean
 
 help:  ## Show available commands
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -49,6 +49,9 @@ replay:  ## Replay a recording (FILE=file or directory, SPEED=1, 10 or 0 for no 
 
 process:  ## Store the raw topic in PostgreSQL (consumer group sink)
 	python -m processor.sink
+
+aggregate:  ## Per-minute event-time statistics from the raw topic (consumer group aggregator)
+	python -m processor.aggregate
 
 lint:  ## Run linter
 	ruff check .

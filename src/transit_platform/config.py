@@ -87,6 +87,36 @@ class ProcessorSettings:
 
 
 @dataclass(frozen=True)
+class AggregatorSettings:
+    group_id: str = "aggregator"
+    storage_group_id: str = "sink"
+    batch_max_messages: int = 5000
+    batch_max_ms: int = 500
+    allowed_lateness_s: int = 10
+    correction_horizon_s: int = 600
+    idle_timeout_s: float = 30.0
+    stale_after_s: int = 120
+    storage_wait_s: float = 300.0
+    instance_id: str | None = None
+
+    @classmethod
+    def from_env(cls) -> AggregatorSettings:
+        group_id = os.getenv("AGGREGATOR_GROUP_ID", "aggregator")
+        return cls(
+            group_id=group_id,
+            storage_group_id=os.getenv("SINK_GROUP_ID", "sink"),
+            batch_max_messages=int(os.getenv("AGGREGATOR_BATCH_MAX_MESSAGES", "5000")),
+            batch_max_ms=int(os.getenv("AGGREGATOR_BATCH_MAX_MS", "500")),
+            allowed_lateness_s=int(os.getenv("AGGREGATOR_ALLOWED_LATENESS_S", "10")),
+            correction_horizon_s=int(os.getenv("AGGREGATOR_CORRECTION_HORIZON_S", "600")),
+            idle_timeout_s=float(os.getenv("AGGREGATOR_IDLE_TIMEOUT_S", "30")),
+            stale_after_s=int(os.getenv("AGGREGATOR_STALE_AFTER_S", "120")),
+            storage_wait_s=float(os.getenv("AGGREGATOR_STORAGE_WAIT_S", "300")),
+            instance_id=os.getenv("AGGREGATOR_INSTANCE_ID") or f"{group_id}-{socket.gethostname()}",
+        )
+
+
+@dataclass(frozen=True)
 class SourceSettings:
     mqtt_host: str
     mqtt_port: int

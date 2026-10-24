@@ -27,7 +27,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
 import psycopg
-from confluent_kafka import Consumer, KafkaError, Message, Producer, TopicPartition
+from confluent_kafka import (
+    Consumer,
+    KafkaError,
+    KafkaException,
+    Message,
+    Producer,
+    TopicPartition,
+)
 
 from processor.decode import Event, Rejection, decode
 from processor.store import (
@@ -154,6 +161,8 @@ class StorageSink:
         error = message.error()
         if error is None:
             return False
+        if error.fatal():
+            raise KafkaException(error)
         if error.code() != KafkaError._PARTITION_EOF:
             logger.error("event=consume_error error=%s", error)
         return True
@@ -248,16 +257,26 @@ def _ms(start: float, end: float) -> int:
     return round((end - start) * 1000)
 
 
+def consumer_config(stream: StreamSettings, settings: ProcessorSettings) -> dict[str, object]:
+    """Manual offset commits and, with an instance id, static group membership.
+
+    A static member that restarts within the session timeout gets its partitions back at
+    once, without a rebalance. A second process with the same id is fenced off.
+    """
+    config: dict[str, object] = {
+        "bootstrap.servers": stream.bootstrap_servers,
+        "group.id": settings.group_id,
+        "enable.auto.commit": False,
+        "auto.offset.reset": "earliest",
+        "partition.assignment.strategy": "cooperative-sticky",
+    }
+    if settings.instance_id:
+        config["group.instance.id"] = settings.instance_id
+    return config
+
+
 def build_consumer(stream: StreamSettings, settings: ProcessorSettings) -> Consumer:
-    consumer = Consumer(
-        {
-            "bootstrap.servers": stream.bootstrap_servers,
-            "group.id": settings.group_id,
-            "enable.auto.commit": False,
-            "auto.offset.reset": "earliest",
-            "partition.assignment.strategy": "cooperative-sticky",
-        }
-    )
+    consumer = Consumer(consumer_config(stream, settings))
     consumer.subscribe(
         [stream.raw_topic],
         on_assign=lambda _c, parts: logger.info("event=assigned partitions=%s", _names(parts)),

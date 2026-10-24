@@ -1,4 +1,10 @@
-from transit_platform.config import DatabaseSettings, SourceSettings, StreamSettings
+from processor.sink import consumer_config
+from transit_platform.config import (
+    DatabaseSettings,
+    ProcessorSettings,
+    SourceSettings,
+    StreamSettings,
+)
 
 
 def test_database_url_is_built_from_env(monkeypatch):
@@ -34,3 +40,15 @@ def test_stream_settings_default_to_the_raw_topic(monkeypatch):
     monkeypatch.delenv("HFP_RAW_TOPIC", raising=False)
     settings = StreamSettings.from_env()
     assert (settings.raw_topic, settings.raw_partitions) == ("hfp.raw", 6)
+
+
+def test_sink_is_a_static_member_named_after_the_host_unless_set(monkeypatch):
+    monkeypatch.delenv("SINK_INSTANCE_ID", raising=False)
+    monkeypatch.setattr("socket.gethostname", lambda: "box")
+    assert ProcessorSettings.from_env().instance_id == "sink-box"
+
+    monkeypatch.setenv("SINK_INSTANCE_ID", "sink-1")
+    settings = ProcessorSettings.from_env()
+    config = consumer_config(StreamSettings.from_env(), settings)
+    assert config["group.instance.id"] == "sink-1"
+    assert config["enable.auto.commit"] is False

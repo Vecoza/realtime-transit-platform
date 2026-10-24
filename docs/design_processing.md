@@ -156,4 +156,15 @@ The platform's own share is dominated by the 500 ms batch window plus the produc
 
 **Manual, with real processes.** The sink consumed the 1,982,660-message Saturday topic and was killed with `kill -9` six times, 19 to 39 seconds after each start. It was then left to finish until the lag was zero. The result was identical to the uninterrupted run: 1,396,803 positions and 28,637 stop events, with every message accounted for exactly once in `meta.consumer_metrics`.
 
-One effect showed up that the automated tests do not show. After a `kill -9`, the dead consumer keeps its partitions until the group's session timeout (45 s by default) expires, so a restart within that time waits. Three of the six restarts made no progress for that reason. Static group membership (`group.instance.id`) would let a restarted instance take its partitions back at once.
+## Restarts and static membership
+
+After a `kill -9` the dead consumer cannot leave the group. With ordinary (dynamic) membership the broker keeps its partitions assigned until the session timeout (45 s) expires, and a restarted process joins as a new member and waits for that. The sink therefore uses static membership: it joins with a fixed `group.instance.id` (`SINK_INSTANCE_ID`, by default `<group>-<hostname>`). A restarted process with the same id is recognised as the same member and gets its partitions back without a rebalance.
+
+Measured by killing the sink with `kill -9` every 8 seconds while it consumed the Saturday topic, and timing from the kill to the restarted process's first committed batch (six rounds each):
+
+| Membership | Median | Range |
+|---|---:|---:|
+| Dynamic | 45.2 s | 45.2–45.4 s |
+| Static | **0.9 s** | 0.8–1.0 s |
+
+The cost is on the other side: a static member that stops for good, also after a clean shutdown, holds its partitions for the session timeout before they move to another member. That is the right trade for a sink that is restarted far more often than it is scaled down. Two processes with the same id fence each other off; the sink stops on that fatal error instead of running as a second copy.

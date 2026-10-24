@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import socket
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,14 +72,17 @@ class ProcessorSettings:
     dlq_topic: str = "hfp.dlq"
     batch_max_messages: int = 5000
     batch_max_ms: int = 500
+    instance_id: str | None = None
 
     @classmethod
     def from_env(cls) -> ProcessorSettings:
+        group_id = os.getenv("SINK_GROUP_ID", "sink")
         return cls(
-            group_id=os.getenv("SINK_GROUP_ID", "sink"),
+            group_id=group_id,
             dlq_topic=os.getenv("HFP_DLQ_TOPIC", "hfp.dlq"),
             batch_max_messages=int(os.getenv("SINK_BATCH_MAX_MESSAGES", "5000")),
             batch_max_ms=int(os.getenv("SINK_BATCH_MAX_MS", "500")),
+            instance_id=os.getenv("SINK_INSTANCE_ID") or f"{group_id}-{socket.gethostname()}",
         )
 
 

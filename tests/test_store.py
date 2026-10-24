@@ -161,27 +161,70 @@ def test_rows_land_in_the_partition_of_their_utc_event_day(
     assert conn.execute("SELECT count(*) FROM rt.stop_events_default").fetchone() == (0,)
 
 
-def test_feed_current_on_the_operating_day_is_used(
+def load_build(conn: psycopg.Connection, feed_dir: Path, tmp_path: Path, built: str) -> int:
+    info = feed_dir / "feed_info.txt"
+    lines = info.read_text().splitlines()
+    lines[1] = lines[1].rsplit(",", 1)[0] + f",{built} 04:11:14"
+    info.write_text("\n".join(lines) + "\n")
+    feed = FeedFile.from_path(zip_feed(feed_dir, tmp_path / f"{built}.zip"))
+    return load_feed(conn, feed).feed_id
+
+
+def test_feed_built_before_the_operating_day_is_used(
     conn: psycopg.Connection, feed_dir: Path, tmp_path: Path
 ) -> None:
-    first = load_feed(conn, FeedFile.from_path(zip_feed(feed_dir, tmp_path / "a.zip")))
-    info = feed_dir / "feed_info.txt"
-    info.write_text(info.read_text().replace("small-1", "small-2"))
-    second = load_feed(conn, FeedFile.from_path(zip_feed(feed_dir, tmp_path / "b.zip")))
+    first = load_build(conn, feed_dir, tmp_path, "2026-10-19")
+    second = load_build(conn, feed_dir, tmp_path, "2026-10-22")
+    conn.commit()
+
+    store(conn, hfp_envelope(), hfp_envelope(oday="2026-10-26", tst="2026-10-26T03:38:00Z"))
+
+    feeds = [row["feed_id"] for row in position(conn)]
+    assert feeds == [first, second]
+    assert conn.execute(
+        "SELECT build_date FROM gtfs.feed_versions WHERE feed_id = %s", (first,)
+    ).fetchone() == (date(2026, 10, 19),)
+
+
+def test_backfilled_older_build_is_used_for_its_own_days_only(
+    conn: psycopg.Connection, feed_dir: Path, tmp_path: Path
+) -> None:
+    first = load_build(conn, feed_dir, tmp_path, "2026-10-19")
+    third = load_build(conn, feed_dir, tmp_path, "2026-10-25")
+    second = load_build(conn, feed_dir, tmp_path, "2026-10-22")
+    conn.commit()
+
+    store(
+        conn,
+        hfp_envelope(),
+        hfp_envelope(oday="2026-10-23", tst="2026-10-23T03:38:00Z"),
+        hfp_envelope(oday="2026-10-26", tst="2026-10-26T03:38:00Z"),
+    )
+
+    feeds = [row["feed_id"] for row in position(conn)]
+    assert feeds == [first, second, third]
+
+
+def test_without_a_build_date_the_load_time_decides(
+    conn: psycopg.Connection, feed_dir: Path, tmp_path: Path
+) -> None:
+    first = load_build(conn, feed_dir, tmp_path, "2026-10-19")
+    second = load_build(conn, feed_dir, tmp_path, "2026-10-22")
+    conn.execute("UPDATE gtfs.feed_versions SET build_date = NULL")
     conn.execute(
         "UPDATE gtfs.feed_versions SET loaded_at = %s WHERE feed_id = %s",
-        (datetime(2026, 10, 19, 12, tzinfo=UTC), first.feed_id),
+        (datetime(2026, 10, 19, 12, tzinfo=UTC), first),
     )
     conn.execute(
         "UPDATE gtfs.feed_versions SET loaded_at = %s WHERE feed_id = %s",
-        (datetime(2026, 10, 22, 12, tzinfo=UTC), second.feed_id),
+        (datetime(2026, 10, 22, 12, tzinfo=UTC), second),
     )
     conn.commit()
 
     store(conn, hfp_envelope(), hfp_envelope(oday="2026-10-26", tst="2026-10-26T03:38:00Z"))
 
     feeds = [row["feed_id"] for row in position(conn)]
-    assert feeds == [first.feed_id, second.feed_id]
+    assert feeds == [first, second]
 
 
 def test_partitions_are_created_ahead_and_creation_is_idempotent(

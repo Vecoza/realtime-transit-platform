@@ -22,6 +22,7 @@ erDiagram
         text sha256 UK
         bigint size_bytes
         text feed_version
+        date build_date "day the publisher built it"
         timestamptz downloaded_at
         timestamptz loaded_at
         date valid_from

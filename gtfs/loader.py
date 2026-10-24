@@ -31,6 +31,7 @@ COPY_CHUNK_SIZE = 1 << 20
 LOAD_LOCK_KEY = 7_013_001
 
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+_BUILD_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 
 class InvalidFeedError(Exception):
@@ -73,8 +74,9 @@ def load_feed(conn: psycopg.Connection, feed: FeedFile) -> LoadResult:
         with zipfile.ZipFile(feed.path) as archive:
             for gtfs_file in FILES:
                 stage_file(conn, archive, gtfs_file)
+            built_on = build_date(conn, archive)
         valid_from, valid_to = staged_validity(conn)
-        feed_id = insert_feed_version(conn, feed, valid_from, valid_to)
+        feed_id = insert_feed_version(conn, feed, valid_from, valid_to, built_on)
         create_stop_times_table(conn, feed_id)
         row_counts = publish_rows(conn, feed_id)
         attach_stop_times_table(conn, feed_id)
@@ -172,23 +174,50 @@ def staged_validity(conn: psycopg.Connection) -> tuple[date, date]:
     return first_day, last_day
 
 
+def build_date(conn: psycopg.Connection, archive: zipfile.ZipFile) -> date | None:
+    """The day the publisher built the feed.
+
+    HSL writes the build time as ``feed_version`` (``2026-10-24 06:04:45``). Other feeds fall
+    back to the newest modification date of the GTFS files in the zip.
+    """
+    feed_version = staged_feed_version(conn)
+    if feed_version and (found := _BUILD_DATE.match(feed_version)):
+        return date.fromisoformat(found.group(0))
+    names = {gtfs_file.name for gtfs_file in FILES}
+    newest = max(
+        (info.date_time for info in archive.infolist() if info.filename in names), default=None
+    )
+    if newest is None or newest[0] <= 1980:
+        return None
+    return date(*newest[:3])
+
+
+def staged_feed_version(conn: psycopg.Connection) -> str | None:
+    return conn.execute("SELECT max(feed_version) FROM staging_feed_info").fetchone()[0]
+
+
 def insert_feed_version(
-    conn: psycopg.Connection, feed: FeedFile, valid_from: date, valid_to: date
+    conn: psycopg.Connection,
+    feed: FeedFile,
+    valid_from: date,
+    valid_to: date,
+    built_on: date | None,
 ) -> int:
-    feed_version = conn.execute("SELECT max(feed_version) FROM staging_feed_info").fetchone()[0]
     row = conn.execute(
         """
         INSERT INTO gtfs.feed_versions (
-            source_url, sha256, size_bytes, feed_version, downloaded_at, valid_from, valid_to
+            source_url, sha256, size_bytes, feed_version, build_date, downloaded_at,
+            valid_from, valid_to
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING feed_id
         """,
         (
             feed.source_url,
             feed.sha256,
             feed.size_bytes,
-            feed_version,
+            staged_feed_version(conn),
+            built_on,
             feed.downloaded_at,
             valid_from,
             valid_to,

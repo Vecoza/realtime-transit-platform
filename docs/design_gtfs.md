@@ -103,17 +103,17 @@ Storage per feed version: `stop_times` 1,380 MB (906 MB heap, the rest is the pr
 
 Every daily HSL build is a new version (see above), and each one adds about 8.4 million `stop_times` rows, about 1.4 GB. Keeping all of them is not an option. Keeping none but the current one is not either: an event received at 00:30 belongs to the previous service day, and a late or replayed event must still be matched against the timetable that was current when it happened.
 
-**What stays in PostgreSQL.** The current version, plus every version that was current at some point in the hot window. The hot window is the seven days real-time facts stay in PostgreSQL. A version was current from its `loaded_at` until the next version's `loaded_at`, so the set to keep is:
+**What stays in PostgreSQL.** The current version, plus every version that was current at some point in the hot window. The hot window is the seven days real-time facts stay in PostgreSQL. A version was current from its build date until the next version's build date (the same rule that picks the feed for an operating day, see [design_processing.md](design_processing.md#trip-identity-and-matching)), so the set to keep is:
 
 ```sql
 SELECT feed_id
 FROM (
     SELECT feed_id,
-           lead(loaded_at) OVER (ORDER BY loaded_at) AS replaced_at
+           lead(build_date) OVER (ORDER BY build_date, feed_version) AS replaced_on
     FROM gtfs.feed_versions
 ) AS versions
-WHERE replaced_at IS NULL
-   OR replaced_at > now() - INTERVAL '7 days'
+WHERE replaced_on IS NULL
+   OR replaced_on > current_date - 7
 ```
 
 With one build a day this is about eight versions, roughly 11 GB, almost all of it `stop_times`.

@@ -92,3 +92,69 @@ Two consequences:
 | 702 | 14 | Trunk bus (for example 20, 30, 500) |
 | 704 | 46 | Local bus (for example 31–34) |
 | 900 | 1 | Light rail (line 15) |
+
+## Real-time positions: HSL High-Frequency Positioning (HFP v2)
+
+| | |
+|---|---|
+| Publisher | Helsinki Region Transport (HSL), documented on digitransit.fi ("High-frequency positioning") |
+| Protocol | MQTT 3.1.1 over TLS |
+| Broker | `mqtts://mqtt.hsl.fi:8883` (also `wss://mqtt.hsl.fi:443`; unencrypted `1883` exists, but the documentation recommends TLS for passengers' locational privacy) |
+| Access | Anonymous. No registration, no credentials, no API key. Verified on 23 October 2026: TLS handshake, connect and subscribe succeed |
+| Certificate | Public CA chain; verified against the `certifi` bundle |
+| Subscriptions | `/hfp/v2/journey/ongoing/vp/#`, `/hfp/v2/journey/ongoing/arr/#`, `/hfp/v2/journey/ongoing/dep/#` (QoS 0) |
+| Licence | CC BY 4.0, as for the timetable |
+
+### Topic
+
+```
+/hfp/v2/<journey_type>/<temporal_type>/<event_type>/<transport_mode>/<operator_id>/<vehicle_number>/<route_id>/<direction_id>/<headsign>/<start_time>/<next_stop>/<geohash_level>/<geohash>/<sid>/#
+```
+
+`operator_id` (4 digits) and `vehicle_number` (5 digits) identify the physical vehicle and form the message key. The operator in the topic owns the vehicle. The payload's `oper` is the operator running the trip and can differ.
+
+### Fields used by the platform
+
+| Field | Meaning | Note |
+|---|---|---|
+| `tst` | Event time, UTC, ISO 8601 | Millisecond precision for buses, trams, trains and ferries; mostly whole seconds for metros |
+| `tsi` | Event time, Unix seconds | |
+| `oday` | Operating day of the trip | A day ends at about 04:30 the next morning for most routes |
+| `start` | Scheduled departure from the first stop, `HH:mm` local | 24-hour clock, **not** GTFS's 30-hour day: a trip at `25:10` in GTFS has `start` = `01:10` |
+| `route` | Route id | Matches GTFS `route_id` (documented exceptions exist) |
+| `dir` | `"1"` or `"2"` | `1` = GTFS `direction_id` 0, `2` = GTFS `direction_id` 1 |
+| `stop` | Stop of the event | Documented as a string, arrives as an integer in almost all messages |
+| `dl` | Offset from schedule, seconds | **Negative = behind schedule (late), positive = ahead.** See below |
+| `ttarr`, `ttdep` | Scheduled arrival/departure at the stop, UTC | `arr`/`dep` events only |
+| `lat`, `long`, `spd`, `hdg` | Position, speed (m/s), heading | Can be `null` |
+
+### Sign of `dl`
+
+The official field description: "Offset from the scheduled timetable in seconds (s). Negative values indicate lagging behind the schedule, positive values running ahead of schedule." This is the opposite of the usual "delay" sign.
+
+The live data agrees. For `arr` events with both `dl` and `ttarr`, and where the vehicle is more than 30 seconds off schedule, the sign of `ttarr − tst` (positive when the vehicle arrives early) matches the sign of `dl` in 93% of cases (3,150 of 3,385, Saturday 24 October). The values do not match exactly. `arr` fires when the vehicle enters the stop radius, about 30 seconds before `dl`'s reference point (median residual +29.6 s), and `dep` fires after it leaves (median −16.4 s).
+
+The platform therefore never calls `dl` a delay. Its own delay is `actual − scheduled`, positive when late, and `dl` is kept under a separate name for comparison.
+
+### Observed behaviour
+
+Message rates for `vp`, `arr` and `dep` on ongoing journeys:
+
+| Sample | Duration | Vehicles | `vp`/s | `arr`/s | `dep`/s | All, mean | Busiest second |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Fri 23 Oct, 21:57 Helsinki (evening) | 2 min | | 774 | 6.0 | 5.7 | 786/s | 2,504 |
+| Sat 24 Oct, 15:17–15:47 Helsinki (afternoon) | 30 min | 862 | 1,086 | 8.1 | 7.8 | 1,102/s | 2,945 |
+
+A weekday rush-hour sample is still missing. Both samples come from a weekend or an evening. The rate is steady from minute to minute (between 997 and 1,178 per second on Saturday), but it is bursty within a second. The broker delivers in bursts of up to about three times the mean.
+
+The 30-minute recording is 120 MB gzipped (1,982,660 messages, about 61 bytes per message compressed, about 590 bytes per envelope uncompressed). A day at this rate is roughly 5.7 GB of recordings, which is why recordings are a development tool and not the archive.
+
+**Duplicates.** 28.1% of all messages are byte-identical copies of an earlier message (same topic and payload). Almost all are trams: 545,915 of 731,079 tram messages (75%) are copies, so a tram position typically arrives about four times. Metros contribute 11,291 copies and buses 14. Deduplication is not a corner case for this feed.
+
+**Same key, different content.** Metro `tst` mostly has whole-second precision. Two different positions of one metro unit can therefore share `(oper, veh, event, tst)` (seen 7 times in the 3-minute fixture). A deduplication key on those fields alone would drop real positions.
+
+**Event time and processing time.** `received_at − tst` has a median of 0.00 s, p95 0.87 s and p99 6.1 s. The minimum is −0.57 s, so some vehicle clocks run slightly ahead of the receiving machine. Processing time is only a rough check, and lateness must be measured on event time.
+
+**Nulls.** `lat`, `long`, `spd`, `hdg` and `dl` are occasionally `null`, and `stop` is `null` whenever the vehicle is between stops. `loc` is mostly `GPS`, with some `MAN` (manual), `DR` (dead reckoning) and `ODO` (odometer).
+
+**Reconnect.** After the laptop running the recorder slept overnight, the broker had closed the connection (`Keep alive timeout`). The client reconnected and resubscribed 1.6 seconds after waking.

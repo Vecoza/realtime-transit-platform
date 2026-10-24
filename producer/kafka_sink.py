@@ -25,25 +25,33 @@ PRODUCER_CONFIG = {
 
 def ensure_topic(settings: StreamSettings, timeout_s: float = 30.0) -> None:
     """Create the raw topic if it does not exist yet; an existing topic is left as it is."""
-    admin = AdminClient({"bootstrap.servers": settings.bootstrap_servers})
-    topic = NewTopic(
+    create_topic(
+        settings.bootstrap_servers,
         settings.raw_topic,
-        num_partitions=settings.raw_partitions,
-        replication_factor=1,
-        config={"retention.ms": str(settings.raw_retention_ms)},
+        settings.raw_partitions,
+        settings.raw_retention_ms,
+        timeout_s,
     )
-    future = admin.create_topics([topic], operation_timeout=timeout_s)[settings.raw_topic]
+
+
+def create_topic(
+    bootstrap_servers: str, name: str, partitions: int, retention_ms: int, timeout_s: float = 30.0
+) -> None:
+    admin = AdminClient({"bootstrap.servers": bootstrap_servers})
+    topic = NewTopic(
+        name,
+        num_partitions=partitions,
+        replication_factor=1,
+        config={"retention.ms": str(retention_ms)},
+    )
+    future = admin.create_topics([topic], operation_timeout=timeout_s)[name]
     try:
         future.result(timeout=timeout_s)
-        logger.info(
-            "event=topic_created topic=%s partitions=%d",
-            settings.raw_topic,
-            settings.raw_partitions,
-        )
+        logger.info("event=topic_created topic=%s partitions=%d", name, partitions)
     except KafkaException as error:
         if error.args[0].code() != KafkaError.TOPIC_ALREADY_EXISTS:
             raise
-        logger.info("event=topic_exists topic=%s", settings.raw_topic)
+        logger.info("event=topic_exists topic=%s", name)
 
 
 @dataclass

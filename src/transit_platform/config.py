@@ -66,6 +66,23 @@ class StreamSettings:
 
 
 @dataclass(frozen=True)
+class ProcessorSettings:
+    group_id: str = "sink"
+    dlq_topic: str = "hfp.dlq"
+    batch_max_messages: int = 5000
+    batch_max_ms: int = 500
+
+    @classmethod
+    def from_env(cls) -> ProcessorSettings:
+        return cls(
+            group_id=os.getenv("SINK_GROUP_ID", "sink"),
+            dlq_topic=os.getenv("HFP_DLQ_TOPIC", "hfp.dlq"),
+            batch_max_messages=int(os.getenv("SINK_BATCH_MAX_MESSAGES", "5000")),
+            batch_max_ms=int(os.getenv("SINK_BATCH_MAX_MS", "500")),
+        )
+
+
+@dataclass(frozen=True)
 class SourceSettings:
     mqtt_host: str
     mqtt_port: int

@@ -117,7 +117,7 @@ class StorageSink:
                     copies += 1
                     continue
                 seen.add(marker)
-                outcome = decode(outcome)
+                outcome = decode(outcome, message.partition(), message.offset())
             if isinstance(outcome, Rejection):
                 self._dead_letter(message, outcome)
                 rejected += 1

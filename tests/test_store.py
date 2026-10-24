@@ -239,5 +239,8 @@ def test_partitions_are_created_ahead_and_creation_is_idempotent(
         "SELECT relname FROM pg_class WHERE relname ~ '_20300(1|2)[0-9]{2}$' ORDER BY 1"
     ).fetchall()
     assert len(days) == 8
-    assert [name for (name,) in names][:2] == ["stop_events_20300130", "stop_events_20300131"]
-    assert len(names) == 16
+    assert [name for (name,) in names][:2] == [
+        "route_minute_stats_20300130",
+        "route_minute_stats_20300131",
+    ]
+    assert len(names) == 4 * 8

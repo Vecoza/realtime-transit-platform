@@ -31,6 +31,8 @@ COMMON_COLUMNS = (
     "hfp_schedule_offset_s",
     "lat",
     "lon",
+    "source_partition",
+    "source_offset",
 )
 POSITION_COLUMNS = (
     *COMMON_COLUMNS,
@@ -102,14 +104,15 @@ INSERT_POSITIONS_SQL = (
             tst, operator_id, vehicle_number, payload_hash, received_at, transport_mode,
             running_operator_id, route_id, direction_id, oday, start_time,
             start_offset_seconds, feed_id, trip_id, match_status, lat, lon, speed_mps,
-            heading, hfp_schedule_offset_s, stop_id, next_stop_id, location_source
+            heading, hfp_schedule_offset_s, stop_id, next_stop_id, location_source,
+            source_partition, source_offset
         )
         SELECT s.tst, s.operator_id, s.vehicle_number, s.payload_hash, s.received_at,
                s.transport_mode, s.running_operator_id, s.route_id, s.direction_id, s.oday,
                s.start_time, s.start_offset_seconds, m.feed_id, m.trip_id,
                coalesce(m.journey_status, 'missing_journey'),
                s.lat, s.lon, s.speed_mps, s.heading, s.hfp_schedule_offset_s, s.stop_id,
-               s.next_stop_id, s.location_source
+               s.next_stop_id, s.location_source, s.source_partition, s.source_offset
         FROM staged_positions AS s
         LEFT JOIN matches AS m USING (route_id, direction_id, oday, start_offset_seconds)
         ON CONFLICT DO NOTHING
@@ -160,7 +163,8 @@ INSERT_STOP_EVENTS_SQL = (
             tst, operator_id, vehicle_number, event_type, payload_hash, received_at,
             transport_mode, running_operator_id, route_id, direction_id, oday, start_time,
             start_offset_seconds, feed_id, trip_id, stop_id, stop_sequence, match_status,
-            planned_time, delay_seconds, hfp_planned_time, hfp_schedule_offset_s, lat, lon
+            planned_time, delay_seconds, hfp_planned_time, hfp_schedule_offset_s, lat, lon,
+            source_partition, source_offset
         )
         SELECT tst, operator_id, vehicle_number, event_type, payload_hash, received_at,
                transport_mode, running_operator_id, route_id, direction_id, oday, start_time,
@@ -175,7 +179,7 @@ INSERT_STOP_EVENTS_SQL = (
                END,
                matched_planned_time,
                round(extract(EPOCH FROM tst - matched_planned_time))::INTEGER,
-               hfp_planned_time, hfp_schedule_offset_s, lat, lon
+               hfp_planned_time, hfp_schedule_offset_s, lat, lon, source_partition, source_offset
         FROM located
         ON CONFLICT DO NOTHING
         RETURNING match_status, stored_at - tst AS latency
@@ -268,6 +272,8 @@ def common_values(event: Event) -> tuple:
         p.dl,
         p.lat,
         p.long,
+        event.source_partition,
+        event.source_offset,
     )
 
 

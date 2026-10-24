@@ -84,6 +84,8 @@ class Event:
     next_stop_id: str | None
     payload: HfpPayload
     start_offset_seconds: int | None
+    source_partition: int | None = None
+    source_offset: int | None = None
 
     @property
     def direction_id(self) -> int | None:
@@ -118,8 +120,13 @@ def payload_hash(payload: str) -> bytes:
     return hashlib.blake2b(payload.encode(), digest_size=16).digest()
 
 
-def decode(envelope: Envelope) -> Event | Rejection:
-    """Validate one envelope; every failure becomes a Rejection with a short reason."""
+def decode(
+    envelope: Envelope, partition: int | None = None, offset: int | None = None
+) -> Event | Rejection:
+    """Validate one envelope; every failure becomes a Rejection with a short reason.
+
+    ``partition`` and ``offset`` locate the message in the raw topic, when it came from there.
+    """
     info = parse_topic(envelope.topic)
     if info is None or info.event_type not in EVENT_KEYS:
         return Rejection("unexpected_topic", envelope.topic)
@@ -138,9 +145,9 @@ def decode(envelope: Envelope) -> Event | Rejection:
     if not received_at - MAX_EVENT_AGE <= payload.tst <= received_at + MAX_CLOCK_AHEAD:
         return Rejection("tst_out_of_range", f"tst={payload.tst} received_at={received_at}")
 
-    offset = None
+    start_offset = None
     if payload.oday is not None and payload.start is not None:
-        offset = start_offset_seconds(payload.oday, payload.start, payload.tst)
+        start_offset = start_offset_seconds(payload.oday, payload.start, payload.tst)
     return Event(
         event_type=info.event_type,
         tst=payload.tst,
@@ -151,7 +158,9 @@ def decode(envelope: Envelope) -> Event | Rejection:
         transport_mode=info.transport_mode,
         next_stop_id=_next_stop(envelope.topic),
         payload=payload,
-        start_offset_seconds=offset,
+        start_offset_seconds=start_offset,
+        source_partition=partition,
+        source_offset=offset,
     )
 
 

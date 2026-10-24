@@ -27,6 +27,15 @@ RT_TABLES = {
     "rt.stop_events",
     "rt.stop_events_default",
     "meta.consumer_metrics",
+    "rt.route_minute_stats",
+    "rt.route_minute_stats_default",
+    "rt.stop_minute_stats",
+    "rt.stop_minute_stats_default",
+    "rt.late_events",
+    "rt.vehicle_status",
+    "meta.aggregator_progress",
+    "meta.aggregator_watermarks",
+    "meta.aggregator_metrics",
 }
 FUNCTIONS = 5
 

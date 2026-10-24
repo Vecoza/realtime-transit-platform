@@ -16,7 +16,7 @@ from alembic.config import Config
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 
-from transit_platform.config import DatabaseSettings
+from transit_platform.config import DatabaseSettings, StreamSettings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INIT_SQL = sorted((REPO_ROOT / "docker" / "init").glob("*.sql"))
@@ -106,3 +106,22 @@ def zip_feed(source_dir: Path, target: Path) -> Path:
         for path in sorted(source_dir.glob("*.txt")):
             archive.write(path, path.name)
     return target
+
+
+@pytest.fixture(scope="session")
+def stream_settings() -> StreamSettings:
+    """Settings for a reachable broker; stream tests are skipped locally if there is none."""
+    from confluent_kafka.admin import AdminClient
+
+    settings = StreamSettings.from_env()
+    admin = AdminClient(
+        {"bootstrap.servers": settings.bootstrap_servers, "socket.timeout.ms": 3000}
+    )
+    try:
+        admin.list_topics(timeout=5)
+    except Exception:
+        message = f"Kafka broker is not reachable at {settings.bootstrap_servers}"
+        if os.getenv("CI"):
+            pytest.fail(message)
+        pytest.skip(f"{message}; start it with `make up` to run stream tests")
+    return settings

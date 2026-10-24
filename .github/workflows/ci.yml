@@ -31,6 +31,7 @@ jobs:
       POSTGRES_HOST: localhost
       POSTGRES_PORT: 5432
       PGPASSWORD: rtp_local_pw_2026
+      KAFKA_BOOTSTRAP_SERVERS: localhost:19092
 
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +46,9 @@ jobs:
 
       - name: Lint
         run: ruff check .
+
+      - name: Start Redpanda
+        run: docker compose up --detach --wait redpanda
 
       - name: Create schemas
         run: >-

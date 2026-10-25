@@ -103,20 +103,26 @@ Storage per feed version: `stop_times` 1,380 MB (906 MB heap, the rest is the pr
 
 Every daily HSL build is a new version (see above), and each one adds about 8.4 million `stop_times` rows, about 1.4 GB. Keeping all of them is not an option. Keeping none but the current one is not either: an event received at 00:30 belongs to the previous service day, and a late or replayed event must still be matched against the timetable that was current when it happened.
 
-**What stays in PostgreSQL.** The current version, plus every version that was current at some point in the hot window. The hot window is the seven days real-time facts stay in PostgreSQL. A version was current from its build date until the next version's build date (the same rule that picks the feed for an operating day, see [design_processing.md](design_processing.md#trip-identity-and-matching)), so the set to keep is:
+**What stays in PostgreSQL.** PostgreSQL needs a version for one reason only: the sink matches each arriving event against the version that was current on the event's operating day. Stored events already carry their planned time and trip, and the analytical models read every version from its Parquet export. So a version has to stay exactly as long as the sink can still receive an event whose operating day falls in the time that version was current.
+
+That window is short. The sink rejects an event whose `tst` is more than a day before its receipt. A live event received today therefore has `tst` no earlier than yesterday, and its operating day is at most one day before the local date of `tst` (a night trip after midnight belongs to the previous day). The oldest operating day the sink can still see is **two days ago**.
+
+A version is current from its build date until the next version's build date (the same rule that picks the version for an operating day, see [design_processing.md](design_processing.md#trip-identity-and-matching)). The set to keep is the current version plus every version that was current on any of the last two days:
 
 ```sql
 SELECT feed_id
 FROM (
     SELECT feed_id,
-           lead(build_date) OVER (ORDER BY build_date, feed_version) AS replaced_on
+           lead(build_date) OVER (ORDER BY build_date, feed_id) AS replaced_on
     FROM gtfs.feed_versions
 ) AS versions
 WHERE replaced_on IS NULL
-   OR replaced_on > current_date - 7
+   OR replaced_on > current_date - 2
 ```
 
-With one build a day this is about eight versions, roughly 11 GB, almost all of it `stop_times`.
+With one build a day this is three versions, about 4.5 GB, almost all of it `stop_times`; the window is `ARCHIVE_KEEP_DAYS_TIMETABLE` (2, and never less). The version that is current is never dropped, even when an older version was reactivated.
+
+The window holds for live data. A replay of a recording older than two days carries its original receive times, so the sink accepts it, but the version it needs may be gone. Such a replay needs the version loaded again first, from the downloaded zip that `data/gtfs` keeps.
 
 **What happens to an older version.** The storage lifecycle job ([design_lifecycle.md](design_lifecycle.md)) exports every version to Parquet as soon as it is loaded, not only before it is dropped, because the analytical models read the timetable from there:
 

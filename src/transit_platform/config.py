@@ -128,9 +128,10 @@ class ArchiveSettings:
     positions_days: int = 2
     stop_events_days: int = 7
     minute_stats_days: int = 7
+    timetable_days: int = 2
 
     def __post_init__(self) -> None:
-        for name in ("positions_days", "stop_events_days", "minute_stats_days"):
+        for name in ("positions_days", "stop_events_days", "minute_stats_days", "timetable_days"):
             if getattr(self, name) < MIN_KEEP_DAYS:
                 raise ValueError(f"{name} must be at least {MIN_KEEP_DAYS}")
 
@@ -149,6 +150,7 @@ class ArchiveSettings:
             positions_days=int(os.getenv("ARCHIVE_KEEP_DAYS_POSITIONS", "2")),
             stop_events_days=int(os.getenv("ARCHIVE_KEEP_DAYS_STOP_EVENTS", "7")),
             minute_stats_days=int(os.getenv("ARCHIVE_KEEP_DAYS_MINUTE_STATS", "7")),
+            timetable_days=int(os.getenv("ARCHIVE_KEEP_DAYS_TIMETABLE", "2")),
         )
 
 

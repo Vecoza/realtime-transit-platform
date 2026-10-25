@@ -14,7 +14,8 @@ Each real-time table has its own retention, by who reads it in PostgreSQL: posit
 live map and are kept two days, stop events and minute statistics a week. Partitions no
 longer change by then: the sink rejects events more than a day old. Timetable versions are
 exported as soon as they are loaded, because the analytical models read the timetable from
-Parquet, and dropped once they are no longer needed for matching (docs/design_gtfs.md).
+Parquet, and dropped once the sink can no longer need them for matching
+(docs/design_gtfs.md).
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ FEED_TABLES = ("stop_times", "trips", "service_dates", "routes", "stops")
 FUTURE_DAYS = 7
 LOCK_TIMEOUT = "10s"
 
-# A version stays while it was current at some point in the hot window.
+# A version stays while it was current on a day the sink can still receive events for.
 DROPPABLE_FEEDS_SQL = """
     SELECT feed_id
     FROM (
@@ -113,7 +114,7 @@ class Lifecycle:
                 self.archive_day(table, day)
         for feed_id in self.feed_ids():
             self.export_feed(feed_id)
-        for feed_id in self.droppable_feeds(today - timedelta(days=self.settings.stop_events_days)):
+        for feed_id in self.droppable_feeds(today - timedelta(days=self.settings.timetable_days)):
             self.drop_feed(feed_id)
 
     def day_partitions(self, table: str, before: date) -> list[date]:

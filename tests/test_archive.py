@@ -161,7 +161,7 @@ def test_export_that_does_not_match_postgres_is_never_dropped(
     assert steps(lifecycle.conn, "rt.vehicle_positions", "2026-10-20") == ["exported", "failed"]
 
 
-def test_feeds_are_exported_when_loaded_and_dropped_once_replaced_long_enough(
+def test_feeds_are_exported_when_loaded_and_dropped_once_the_sink_cannot_need_them(
     conn: psycopg.Connection,
     lifecycle: Lifecycle,
     duck: duckdb.DuckDBPyConnection,
@@ -170,7 +170,7 @@ def test_feeds_are_exported_when_loaded_and_dropped_once_replaced_long_enough(
 ) -> None:
     old = load_build(conn, feed_dir, tmp_path, "2026-10-01")
     replaced_recently = load_build(conn, feed_dir, tmp_path, "2026-10-12")
-    current = load_build(conn, feed_dir, tmp_path, "2026-10-26")
+    current = load_build(conn, feed_dir, tmp_path, "2026-10-29")
     conn.commit()
     stop_times = conn.execute(
         "SELECT count(*) FROM gtfs.stop_times WHERE feed_id = %s", (old,)

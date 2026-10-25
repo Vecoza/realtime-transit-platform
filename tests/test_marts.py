@@ -67,7 +67,7 @@ def store_saturday(conn: psycopg.Connection) -> int:
     return result.inserted
 
 
-def build_marts(warehouse: Path) -> dict[str, list[tuple]]:
+def build_marts(warehouse: Path) -> dict[str, list[dict]]:
     dbt = Path(sys.executable).parent / "dbt"
     result = subprocess.run(
         [dbt, "build", "--project-dir", DBT_DIR, "--profiles-dir", DBT_DIR],
@@ -76,7 +76,12 @@ def build_marts(warehouse: Path) -> dict[str, list[tuple]]:
     )
     assert result.returncode == 0, result.stdout[-3000:]
     with duckdb.connect(str(warehouse), read_only=True) as db:
-        return {mart: db.execute(f"SELECT * FROM {mart} ORDER BY ALL").fetchall() for mart in MARTS}
+        marts = {}
+        for mart in MARTS:
+            cursor = db.execute(f"SELECT * FROM {mart} ORDER BY ALL")
+            columns = [column[0] for column in cursor.description]
+            marts[mart] = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+        return marts
 
 
 def test_marts_are_identical_before_and_after_archiving(
@@ -110,5 +115,7 @@ def test_marts_are_identical_before_and_after_archiving(
     ).fetchone()[0]
     assert archived == stored
     assert all(before[mart] for mart in MARTS)
-    assert sum(row[6] for row in before["mart_bunching"]) > 0
+    assert sum(row["bunched_pairs"] for row in before["mart_bunching"]) > 0
+    assert {row["route_short_name"] for row in before["mart_on_time_performance"]} == {"79", "400"}
+    assert all(row["stop_name"] for row in before["mart_bunching"])
     assert after == before

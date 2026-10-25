@@ -17,6 +17,7 @@ with scheduled as (
 pairs as (
     select
         s.service_date,
+        s.feed_id,
         s.route_id,
         s.direction_id,
         s.stop_id,
@@ -38,11 +39,15 @@ pairs as (
 )
 
 select
-    service_date,
-    {{ local_hour('planned_departure') }} as hour_local,
-    route_id,
-    direction_id,
-    stop_id,
+    p.service_date,
+    {{ local_hour('p.planned_departure') }} as hour_local,
+    p.route_id,
+    any_value(r.route_short_name) as route_short_name,
+    any_value({{ transport_mode('r.route_type') }}) as mode,
+    p.direction_id,
+    p.stop_id,
+    any_value(st.stop_code) as stop_code,
+    any_value(st.stop_name) as stop_name,
     count(*) as observed_pairs,
     count(*) filter (where observed_headway_s < {{ var('bunched_below_ratio') }} * scheduled_headway_s)
         as bunched_pairs,
@@ -51,5 +56,9 @@ select
     round(avg(scheduled_headway_s), 1) as avg_scheduled_headway_s,
     round(avg(observed_headway_s), 1) as avg_observed_headway_s,
     round(median(observed_headway_s / scheduled_headway_s), 3) as median_headway_ratio
-from pairs
-group by service_date, hour_local, route_id, direction_id, stop_id
+from pairs as p
+left join {{ ref('stg_gtfs_routes') }} as r
+  on r.feed_id = p.feed_id and r.route_id = p.route_id
+left join {{ ref('stg_gtfs_stops') }} as st
+  on st.feed_id = p.feed_id and st.stop_id = p.stop_id
+group by p.service_date, hour_local, p.route_id, p.direction_id, p.stop_id

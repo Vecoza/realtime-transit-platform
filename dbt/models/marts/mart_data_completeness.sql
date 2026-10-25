@@ -10,7 +10,8 @@ with coverage as (
 ),
 
 expected as (
-    select distinct s.service_date, s.feed_id, s.trip_id, s.route_id
+    select distinct s.service_date, s.feed_id, s.trip_id, s.route_id, r.route_short_name,
+           {{ transport_mode('r.route_type') }} as mode
     from {{ ref('int_scheduled_departures') }} as s
     join coverage as c
       on c.service_date = s.service_date
@@ -29,6 +30,8 @@ seen as (
 select
     e.service_date,
     e.route_id,
+    any_value(e.route_short_name) as route_short_name,
+    any_value(e.mode) as mode,
     count(*) as expected_trips,
     count(s.trip_id) as seen_trips,
     round(count(s.trip_id) / count(*), 4) as seen_share

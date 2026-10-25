@@ -19,6 +19,7 @@ select
     d.hour_local,
     d.route_id,
     any_value(r.route_short_name) as route_short_name,
+    any_value({{ transport_mode('r.route_type') }}) as mode,
     count(*) as departures,
     count(*) filter (where measured_delay_s >= -{{ early }} and measured_delay_s < {{ late }})
         as on_time,

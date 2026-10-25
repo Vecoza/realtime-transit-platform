@@ -8,6 +8,7 @@ select
     d.stop_id,
     any_value(s.stop_code) as stop_code,
     any_value(s.stop_name) as stop_name,
+    array_to_string(list_sort(list(distinct {{ transport_mode('r.route_type') }})), ', ') as modes,
     count(*) as departures,
     count(distinct d.route_id) as routes,
     round(
@@ -21,4 +22,6 @@ select
 from {{ ref('int_departures') }} as d
 left join {{ ref('stg_gtfs_stops') }} as s
   on s.feed_id = d.feed_id and s.stop_id = d.stop_id
+left join {{ ref('stg_gtfs_routes') }} as r
+  on r.feed_id = d.feed_id and r.route_id = d.route_id
 group by d.service_date, hour_local, d.stop_id

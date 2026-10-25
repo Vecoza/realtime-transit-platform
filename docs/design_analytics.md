@@ -44,7 +44,7 @@ DuckDB attaches PostgreSQL read-only and reads the Parquet archive directly:
 
 ## Tests
 
-`dbt build` runs 30 tests after the models: unique keys on every model, accepted values (event types, directions, match statuses), ranges (shares between 0 and 1, local hours, delays within two hours early and four hours late), and one test per mart:
+`dbt build` runs 33 tests after the models: unique keys on every model, accepted values (event types, directions, match statuses, modes), ranges (shares between 0 and 1, local hours, delays within two hours early and four hours late), and one test per mart:
 
 - on time + early + late = departures;
 - the departures in `mart_stop_punctuality` add up to `int_departures` per day;
@@ -94,30 +94,41 @@ On the Saturday sample (30 minutes, 28,637 stop events), three runs each:
 
 The largest model is the scheduled departures of the day, half a million rows from the timetable, built in about half a second; most of the rest is dbt's own work per model and test.
 
-Sample rows (24 October, 15:00–16:00 Helsinki time):
+Sample rows (24 October, 15:00–16:00 Helsinki time). Every mart carries the names a reader needs next to its keys: route short name and mode, stop code and name.
 
 `mart_on_time_performance`
 
-| route | departures | on time | early | late | on-time share | avg delay | p90 delay |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 79 | 31 | 28 | 0 | 3 | 0.903 | 89 s | 169 s |
-| 520 | 29 | 26 | 1 | 2 | 0.897 | 79 s | 157 s |
-| 30 | 27 | 10 | 0 | 17 | 0.370 | 243 s | 497 s |
+| route | mode | departures | on time | early | late | on-time share | avg delay | p90 delay |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 79 | bus | 31 | 28 | 0 | 3 | 0.903 | 89 s | 169 s |
+| 520 | bus | 29 | 26 | 1 | 2 | 0.897 | 79 s | 157 s |
+| 30 | bus | 27 | 10 | 0 | 17 | 0.370 | 243 s | 497 s |
 
 `mart_stop_punctuality`
 
-| stop | departures | routes | on-time share | avg delay | p90 delay |
-|---|---:|---:|---:|---:|---:|
-| Sörnäinen (M) H2410 | 27 | 19 | 0.333 | 306 s | 628 s |
-| Haapaniemi H2406 | 25 | 19 | 0.360 | 281 s | 630 s |
+| stop | name | modes | departures | routes | on-time share | avg delay | p90 delay | timing point |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| H2410 | Sörnäinen (M) | bus | 27 | 19 | 0.333 | 306 s | 628 s | no |
+| H2406 | Haapaniemi | bus | 25 | 19 | 0.360 | 281 s | 630 s | no |
+| H1928 | Ruskeasuo | bus | 21 | 11 | 0.429 | 163 s | 360 s | no |
 
-`mart_bunching` (route 4400, direction 0)
+`mart_bunching`
 
-| stop | observed pairs | bunched | gaps | scheduled headway | observed headway | median ratio |
-|---|---:|---:|---:|---:|---:|---:|
-| 1332113 | 4 | 2 | 1 | 615 s | 395 s | 0.317 |
+| route | mode | direction | stop | name | observed pairs | bunched | gaps | scheduled headway | observed headway | median ratio |
+|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|
+| 400 | bus | 0 | H1949 | Kaarelankulku | 4 | 2 | 1 | 615 s | 393 s | 0.271 |
+| 400 | bus | 0 | H1953 | Kaarelantie | 4 | 2 | 1 | 615 s | 395 s | 0.317 |
+| 52 | bus | 0 | H1409 | Gert Skytten puisto | 4 | 1 | 0 | 615 s | 437 s | 0.859 |
 
-`mart_data_completeness`: 1,141 of 1,184 expected trips were seen (96.4%). Over the half hour, 1,211 departures at timing points were 79.8% on time, and 408 of 5,632 observed pairs were bunched (7.2%).
+`mart_data_completeness`
+
+| route | mode | expected trips | seen | share |
+|---|---|---:|---:|---:|
+| 560 | bus | 20 | 19 | 0.950 |
+| 570 | bus | 18 | 17 | 0.944 |
+| 520 | bus | 18 | 18 | 1.000 |
+
+Over the half hour, 1,141 of 1,184 expected trips were seen (96.4%), 1,211 departures at timing points were 79.8% on time, and 408 of 5,632 observed pairs were bunched (7.2%).
 
 ## Not done yet
 

@@ -10,6 +10,11 @@ models:
           arguments:
             columns: [service_date, hour_local, route_id]
     columns:
+      - name: mode
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["tram", "metro", "ferry", "train", "bus", "light rail"]
       - name: hour_local
         tests:
           - between:
@@ -39,6 +44,11 @@ models:
           arguments:
             columns: [service_date, hour_local, route_id, direction_id, stop_id]
     columns:
+      - name: mode
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["tram", "metro", "ferry", "train", "bus", "light rail"]
       - name: direction_id
         tests:
           - accepted_values:
@@ -55,6 +65,11 @@ models:
           arguments:
             columns: [service_date, route_id]
     columns:
+      - name: mode
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["tram", "metro", "ferry", "train", "bus", "light rail"]
       - name: seen_share
         tests:
           - between:

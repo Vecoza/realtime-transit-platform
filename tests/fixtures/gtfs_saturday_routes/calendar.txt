@@ -1,0 +1,3 @@
+service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date
+1079_20261023_20261108_La,0,0,0,0,0,1,0,20261023,20261108
+4400_20261023_20261115_La,0,0,0,0,0,1,0,20261023,20261115

@@ -1,0 +1,22 @@
+transit_platform:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', 'data/warehouse.duckdb') }}"
+      threads: 4
+      extensions:
+        - postgres
+      settings:
+        autoinstall_known_extensions: false
+        TimeZone: UTC
+      attach:
+        - path: >-
+            host={{ env_var('POSTGRES_HOST', 'localhost') }}
+            port={{ env_var('POSTGRES_PORT', '5432') }}
+            dbname={{ env_var('POSTGRES_DB', 'transit') }}
+            user={{ env_var('POSTGRES_USER', 'transit') }}
+            password={{ env_var('POSTGRES_PASSWORD') }}
+          type: postgres
+          alias: pg
+          read_only: true

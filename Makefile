@@ -1,6 +1,10 @@
 .PHONY: help install duckdb-extensions up down logs psql topics check migrate migrate-down \
-	migrate-status gtfs-load produce record replay process aggregate archive \
+	migrate-status gtfs-load produce record replay process aggregate archive marts \
 	lint format test test-unit test-db clean
+
+# dbt reads its connection from the environment; Python reads .env itself.
+-include .env
+export
 
 help:  ## Show available commands
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -60,6 +64,9 @@ aggregate:  ## Per-minute event-time statistics from the raw topic (consumer gro
 
 archive:  ## Move old day partitions and replaced timetable versions to Parquet
 	python -m archive.lifecycle
+
+marts:  ## Build and test the dbt models in DuckDB
+	dbt build --project-dir dbt --profiles-dir dbt
 
 lint:  ## Run linter
 	ruff check .

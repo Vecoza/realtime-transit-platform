@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: int_departures
+    description: One observed departure per trip, stop and service day, matched to the timetable.
+    tests:
+      - unique_combination:
+          arguments:
+            columns: [service_date, feed_id, trip_id, stop_sequence]
+    columns:
+      - name: planned_time
+        tests: [not_null]
+      - name: measured_delay_s
+        tests:
+          - not_null
+          - between:
+              arguments: {min_value: -7200, max_value: 14400}
+  - name: int_scheduled_departures
+    description: Every departure the timetable planned on the observed service days.
+    tests:
+      - unique_combination:
+          arguments:
+            columns: [service_date, feed_id, trip_id, stop_sequence]

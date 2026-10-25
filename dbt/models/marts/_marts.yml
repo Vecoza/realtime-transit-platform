@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: mart_on_time_performance
+    description: >
+      Departure punctuality at timing points per route, service day and local hour. On time
+      means between 60 s early and 180 s late.
+    tests:
+      - unique_combination:
+          arguments:
+            columns: [service_date, hour_local, route_id]
+    columns:
+      - name: hour_local
+        tests:
+          - between:
+              arguments: {min_value: 0, max_value: 23}
+      - name: on_time_share
+        tests:
+          - not_null
+          - between:
+              arguments: {min_value: 0, max_value: 1}
+  - name: mart_stop_punctuality
+    description: Departure delay per stop, service day and local hour.
+    tests:
+      - unique_combination:
+          arguments:
+            columns: [service_date, hour_local, stop_id]
+    columns:
+      - name: on_time_share
+        tests:
+          - between:
+              arguments: {min_value: 0, max_value: 1}
+  - name: mart_bunching
+    description: >
+      Observed against scheduled headway between consecutive trips of a route and direction
+      at a stop, per service day and local hour.
+    tests:
+      - unique_combination:
+          arguments:
+            columns: [service_date, hour_local, route_id, direction_id, stop_id]
+    columns:
+      - name: direction_id
+        tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: avg_scheduled_headway_s
+        tests:
+          - between:
+              arguments: {min_value: 1, max_value: 86400}
+  - name: mart_data_completeness
+    description: Trips planned to depart inside the observed period against trips seen, per route and service day.
+    tests:
+      - unique_combination:
+          arguments:
+            columns: [service_date, route_id]
+    columns:
+      - name: seen_share
+        tests:
+          - between:
+              arguments: {min_value: 0, max_value: 1}

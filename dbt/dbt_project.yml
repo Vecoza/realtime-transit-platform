@@ -1,0 +1,30 @@
+name: transit_platform
+version: "1.0.0"
+config-version: 2
+profile: transit_platform
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: target
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  archive_dir: "{{ env_var('ARCHIVE_DIR', 'data/archive') }}"
+  # Departures at timing points between 60 s early and 180 s late count as on time.
+  on_time_early_s: 60
+  on_time_late_s: 180
+  # A pair of consecutive departures is bunched below half its scheduled headway.
+  bunched_below_ratio: 0.5
+  gap_above_ratio: 1.5
+  # GTFS route types whose vehicles send no arrival or departure events: metro, ferry.
+  modes_without_stop_events: [1, 4]
+
+models:
+  transit_platform:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: table
+    marts:
+      +materialized: table

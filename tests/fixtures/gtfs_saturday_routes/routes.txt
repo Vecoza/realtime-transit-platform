@@ -1,0 +1,3 @@
+route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_url
+1079,HSL,79,Herttoniemi (M)-Latokartano-Malmi-Siltamäki-Puistolan asem,,701,http://aikataulut.hsl.fi/linjat/fi/b79.html
+4400,HSL,400,Kamppi-Martinlaakso-Vantaankoski,,702,http://aikataulut.hsl.fi/linjat/fi/b400.html

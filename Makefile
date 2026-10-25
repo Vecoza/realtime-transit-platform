@@ -1,5 +1,5 @@
 .PHONY: help install duckdb-extensions up down logs psql topics check migrate migrate-down \
-	migrate-status gtfs-load produce record replay process aggregate archive marts \
+	migrate-status gtfs-load produce record replay process aggregate archive marts scheduler \
 	lint format test test-unit test-db clean
 
 # dbt reads its connection from the environment; Python reads .env itself.
@@ -67,6 +67,9 @@ archive:  ## Move old day partitions and replaced timetable versions to Parquet
 
 marts:  ## Build and test the dbt models in DuckDB
 	dbt build --project-dir dbt --profiles-dir dbt
+
+scheduler:  ## Build and start the scheduler container (GTFS refresh, archive, dbt)
+	docker compose --profile jobs up -d --build scheduler
 
 lint:  ## Run linter
 	ruff check .

@@ -1,0 +1,10 @@
+# Times are UTC. HSL builds its timetable around 04:10 Helsinki time (01:10 or 02:10 UTC).
+
+# Timetable refresh, then export the new version to Parquet for the analytical models
+30 3 * * * python -m gtfs.load && python -m archive.lifecycle
+
+# Storage lifecycle: archive day partitions older than ARCHIVE_KEEP_DAYS, retire old versions
+40 0 * * * python -m archive.lifecycle
+
+# Analytical models and their tests
+15 * * * * dbt build --project-dir dbt --profiles-dir dbt

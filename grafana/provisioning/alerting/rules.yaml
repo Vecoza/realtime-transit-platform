@@ -1,0 +1,96 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: pipeline
+    folder: Transit platform
+    interval: 1m
+    rules:
+      - uid: consumer-lag
+        title: Consumer lag
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: "{{ $labels.group_id }} is {{ $values.B }} messages behind the raw topic"
+          description: >-
+            A consumer group has been more than 30,000 messages behind (about 30 seconds of
+            the live feed) for five minutes. Check the sink or aggregator logs and the
+            database.
+        labels:
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: transit-postgres
+            model:
+              refId: A
+              editorMode: code
+              rawQuery: true
+              format: table
+              rawSql: |-
+                SELECT group_id, consumer_lag::float AS lag
+                FROM (
+                    SELECT DISTINCT ON (group_id) group_id, consumer_lag
+                    FROM (
+                        SELECT batch_id, committed_at, group_id, consumer_lag
+                        FROM meta.consumer_metrics
+                        UNION ALL
+                        SELECT batch_id, committed_at, group_id, consumer_lag
+                        FROM meta.aggregator_metrics
+                    ) AS batches
+                    WHERE committed_at > now() - interval '10 minutes'
+                      AND consumer_lag IS NOT NULL
+                    ORDER BY group_id, committed_at DESC
+                ) AS latest
+          - refId: B
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, expression: A, reducer: last}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [30000]}
+
+      - uid: no-data
+        title: No data for 5 minutes
+        condition: C
+        for: 0s
+        noDataState: Alerting
+        execErrState: Error
+        annotations:
+          summary: "Nothing stored for {{ $values.B }} seconds"
+          description: >-
+            The sink has not stored a single new event for five minutes. The HSL feed, the
+            producer, Redpanda or the sink has stopped.
+        labels:
+          severity: critical
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: transit-postgres
+            model:
+              refId: A
+              editorMode: code
+              rawQuery: true
+              format: table
+              rawSql: |-
+                SELECT coalesce(extract(epoch FROM now() - max(committed_at)), 86400)::float
+                    AS seconds_since_stored
+                FROM meta.consumer_metrics
+                WHERE inserted > 0 AND committed_at > now() - interval '1 day'
+          - refId: B
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, expression: A, reducer: last}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [300]}

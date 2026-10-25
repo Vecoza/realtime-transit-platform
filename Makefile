@@ -1,6 +1,6 @@
 .PHONY: help install duckdb-extensions up down logs psql topics check migrate migrate-down \
 	migrate-status gtfs-load produce record replay process aggregate archive marts scheduler \
-	reader-role 	lint format test test-unit test-db clean
+	reader-role grafana lint format test test-unit test-db clean
 
 # dbt reads its connection from the environment; Python reads .env itself.
 -include .env
@@ -73,6 +73,9 @@ scheduler:  ## Build and start the scheduler container (GTFS refresh, archive, d
 
 reader-role:  ## Set the password of the dashboards' read-only role (grafana_reader) from .env
 	python -m transit_platform.reader_role
+
+grafana:  ## Start Grafana with its provisioned data source, dashboards and alert rules
+	docker compose up -d grafana
 
 lint:  ## Run linter
 	ruff check .

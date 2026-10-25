@@ -1,0 +1,19 @@
+apiVersion: 1
+
+# The dashboards read PostgreSQL only, as the read-only role grafana_reader.
+datasources:
+  - name: Transit PostgreSQL
+    uid: transit-postgres
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: grafana_reader
+    isDefault: true
+    editable: false
+    jsonData:
+      database: ${POSTGRES_DB}
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+      maxOpenConns: 5
+    secureJsonData:
+      password: ${GRAFANA_READER_PASSWORD}

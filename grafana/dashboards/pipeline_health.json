@@ -1,0 +1,589 @@
+{
+  "uid": "pipeline-health",
+  "title": "Pipeline health",
+  "description": "Throughput, lag, dead letters, late data, storage and the batch jobs.",
+  "tags": [
+    "transit",
+    "operations"
+  ],
+  "timezone": "Europe/Helsinki",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Messages per second: consumed and stored by the sink",
+      "description": "From the sink's batch metrics, one row per committed batch. Consumed is every message read from the raw topic; stored are new rows.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(committed_at, '1m'),\n       sum(messages) / 60.0 AS \"consumed\",\n       sum(inserted) / 60.0 AS \"stored\",\n       sum(duplicates) / 60.0 AS \"duplicates dropped\"\nFROM meta.consumer_metrics\nWHERE $__timeFilter(committed_at)\nGROUP BY 1\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "msg/s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Consumer lag per group",
+      "description": "Messages behind the end of the raw topic after each batch, the highest per minute.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(committed_at, '1m'), group_id AS metric, max(consumer_lag) AS lag\nFROM (\n    SELECT committed_at, group_id, consumer_lag FROM meta.consumer_metrics\n    UNION ALL\n    SELECT committed_at, group_id, consumer_lag FROM meta.aggregator_metrics\n) AS batches\nWHERE $__timeFilter(committed_at)\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Dead-letter rate",
+      "description": "Messages that failed validation and went to the dead-letter topic instead of the database.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(committed_at, '1m'), sum(invalid) / 60.0 AS \"to dead-letter topic\"\nFROM meta.consumer_metrics\nWHERE $__timeFilter(committed_at)\nGROUP BY 1\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "msg/s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Late events in the aggregator",
+      "description": "Events that arrived after their minute's window was emitted (corrected), or more than ten minutes late (dropped from the live statistics, still stored).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 8,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(committed_at, '1m'),\n       sum(late) AS \"late, window corrected\",\n       sum(dropped) AS \"beyond correction horizon\"\nFROM meta.aggregator_metrics\nWHERE $__timeFilter(committed_at)\nGROUP BY 1\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Stored latency (p95 of stored_at - tst)",
+      "description": "Time from the vehicle's event to the row being stored, 95th percentile per batch, highest per minute.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 8,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(committed_at, '1m'), max(latency_p95_ms) / 1000.0 AS \"p95\"\nFROM meta.consumer_metrics\nWHERE $__timeFilter(committed_at)\nGROUP BY 1\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "type": "bargauge",
+      "title": "Partition sizes (PostgreSQL, with indexes)",
+      "description": "Non-empty daily partitions of the real-time tables, and their default partitions, which should stay empty.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 10,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT child.relname AS partition,\n       pg_total_relation_size(child.oid) AS bytes\nFROM pg_inherits\nJOIN pg_class AS parent ON parent.oid = pg_inherits.inhparent\nJOIN pg_class AS child ON child.oid = pg_inherits.inhrelid\nJOIN pg_namespace AS ns ON ns.oid = parent.relnamespace\nWHERE ns.nspname = 'rt'\n  AND child.relkind = 'r'\n  AND pg_total_relation_size(child.oid) > 16384\nORDER BY bytes DESC\nLIMIT 20"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "reduceOptions": {
+          "values": true,
+          "calcs": [],
+          "fields": "/^bytes$/"
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Last archive runs",
+      "description": "The newest steps of the storage lifecycle job: export, verification, detach and drop.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 15,
+        "w": 14,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT source_table AS \"table\", object_key AS \"day or version\", step, row_count AS rows, size_bytes AS bytes, recorded_at AS \"time\"\nFROM meta.archive_runs\nORDER BY step_id DESC\nLIMIT 12"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Parquet"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "step"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rows"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Since the last archive run",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT extract(epoch FROM now() - max(recorded_at)) AS seconds FROM meta.archive_runs"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none"
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Since the last dbt run",
+      "description": "dbt builds the analytical models hourly.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 25,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT extract(epoch FROM now() - max(finished_at)) AS seconds FROM meta.dbt_runs"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 7200
+              },
+              {
+                "color": "red",
+                "value": 14400
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Last dbt runs",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 25,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT finished_at AS finished, round(elapsed_s::numeric, 1) AS seconds, models, tests, failed,\n       published_tables AS published\nFROM meta.dbt_runs\nORDER BY finished_at DESC\nLIMIT 5"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Since data was last stored",
+      "description": "The alert 'No data for 5 minutes' fires on the same value.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT extract(epoch FROM now() - max(committed_at)) AS seconds\nFROM meta.consumer_metrics\nWHERE inserted > 0 AND committed_at > now() - interval '1 day'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Sink lag now",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 29,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT consumer_lag FROM meta.consumer_metrics ORDER BY batch_id DESC LIMIT 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none"
+      }
+    }
+  ]
+}

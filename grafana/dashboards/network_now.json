@@ -1,0 +1,609 @@
+{
+  "uid": "network-now",
+  "title": "Network now",
+  "description": "Live state of the network from the stream: where vehicles are, how late lines and stops are by HSL's own estimate, and which vehicles have gone silent.",
+  "tags": [
+    "transit",
+    "live"
+  ],
+  "timezone": "Europe/Helsinki",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Vehicles, last 60 s",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT count(*) AS vehicles\nFROM rt.vehicle_status\nWHERE last_tst > now() - interval '60 seconds'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Stale vehicles",
+      "description": "On a trip that is still planned to run, silent for two minutes of event time. Vehicles whose trip has ended are not counted.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT count(*) AS stale\nFROM rt.vehicle_status\nWHERE status = 'stale'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Network average delay, last 5 min (live delay, HSL estimate)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT round((sum(avg_live_delay_s * live_delay_samples) / nullif(sum(live_delay_samples), 0))::numeric) AS delay\nFROM rt.route_minute_stats\nWHERE window_start > now() - interval '5 minutes'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 120
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Newest minute closed",
+      "description": "How long ago the newest emitted per-minute window ended. A window closes once the watermark has passed its end plus ten seconds of allowed lateness; this grows when the aggregator falls behind.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT extract(epoch FROM now() - max(window_start + interval '1 minute')) AS seconds\nFROM rt.route_minute_stats\nWHERE window_start > now() - interval '1 hour'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none"
+      }
+    },
+    {
+      "id": 5,
+      "type": "geomap",
+      "title": "Vehicles reporting in the last 60 seconds",
+      "description": "Last position of every vehicle that reported in the last 60 seconds.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 13,
+        "h": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT v.lat AS latitude,\n       v.lon AS longitude,\n       coalesce(r.route_short_name, v.route_id, '-') AS line,\n       v.transport_mode AS mode,\n       v.operator_id || '/' || v.vehicle_number AS vehicle,\n       round(extract(epoch FROM now() - v.last_tst)) AS seconds_ago\nFROM rt.vehicle_status AS v\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE v.last_tst > now() - interval '60 seconds'\n  AND v.lat IS NOT NULL AND v.lon IS NOT NULL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "view": {
+          "id": "coords",
+          "lat": 60.2,
+          "lon": 24.94,
+          "zoom": 10.3
+        },
+        "controls": {
+          "showZoom": true,
+          "mouseWheelZoom": true,
+          "showAttribution": true
+        },
+        "basemap": {
+          "type": "osm-standard",
+          "name": "OpenStreetMap"
+        },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Vehicles",
+            "config": {
+              "showLegend": false,
+              "style": {
+                "size": {
+                  "fixed": 5
+                },
+                "color": {
+                  "fixed": "#1f60c4"
+                },
+                "opacity": 0.8,
+                "symbol": {
+                  "mode": "fixed",
+                  "fixed": "img/icons/marker/circle.svg"
+                }
+              }
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "tooltip": true
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Lines by delay, last 10 minutes (live delay, HSL estimate)",
+      "description": "Per line, from the per-minute event-time windows: HSL's own delay estimate carried in every message. Positive means late.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 13,
+        "y": 4,
+        "w": 11,
+        "h": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT coalesce(r.route_short_name, s.route_id) AS line,\n       r.mode,\n       max(s.vehicles) AS vehicles,\n       round((sum(s.avg_live_delay_s * s.live_delay_samples) / nullif(sum(s.live_delay_samples), 0))::numeric) AS avg_delay_s,\n       round(max(s.p90_live_delay_s)::numeric) AS p90_delay_s\nFROM rt.route_minute_stats AS s\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE s.window_start > now() - interval '10 minutes'\nGROUP BY 1, 2\nHAVING sum(s.live_delay_samples) > 0\nORDER BY avg_delay_s DESC\nLIMIT 25"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_delay_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "avg delay"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 120
+                    },
+                    {
+                      "color": "red",
+                      "value": 300
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p90_delay_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "p90"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "line"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mode"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "vehicles"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Average delay by mode (live delay, HSL estimate)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT s.window_start AS time,\n       coalesce(r.mode, 'unknown') AS metric,\n       sum(s.avg_live_delay_s * s.live_delay_samples) / nullif(sum(s.live_delay_samples), 0) AS delay\nFROM rt.route_minute_stats AS s\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE $__timeFilter(s.window_start)\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Worst stops, last 15 minutes (live delay, HSL estimate)",
+      "description": "Stops with at least three arrivals in the last 15 minutes, by the average delay vehicles arrived with.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT d.stop_code AS stop,\n       d.stop_name AS name,\n       sum(s.arrivals) AS arrivals,\n       round((sum(s.avg_live_delay_s * s.live_delay_samples) / nullif(sum(s.live_delay_samples), 0))::numeric) AS avg_delay_s\nFROM rt.stop_minute_stats AS s\nLEFT JOIN marts.dim_stops AS d USING (stop_id)\nWHERE s.window_start > now() - interval '15 minutes'\nGROUP BY s.stop_id, 1, 2\nHAVING sum(s.live_delay_samples) >= 3\nORDER BY avg_delay_s DESC\nLIMIT 15"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_delay_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "avg delay"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Stale vehicles: silent while their trip is planned to run",
+      "description": "Vehicles that stopped reporting for two minutes of event time while their trip is still planned to run. Vehicles past their trip's planned end are finished, not stale, and are not shown.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT v.operator_id || '/' || v.vehicle_number AS vehicle,\n       coalesce(r.route_short_name, v.route_id) AS line,\n       v.transport_mode AS mode,\n       v.start_time AS trip_start,\n       v.silent_since,\n       round(extract(epoch FROM now() - v.last_tst) / 60) AS minutes_silent,\n       v.planned_end\nFROM rt.vehicle_status AS v\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE v.status = 'stale'\nORDER BY v.silent_since"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "minutes_silent"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "minutes silent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "planned_end"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "trip planned to end"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,836 @@
+{
+  "uid": "punctuality",
+  "title": "Punctuality",
+  "description": "Punctuality, bunching and data completeness per service day and local hour, from the analytical marts.",
+  "tags": [
+    "transit",
+    "marts"
+  ],
+  "timezone": "Europe/Helsinki",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "",
+  "schemaVersion": 41,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "day",
+        "label": "Service day",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "transit-postgres"
+        },
+        "query": "SELECT DISTINCT service_date::text FROM marts.mart_on_time_performance ORDER BY 1 DESC",
+        "definition": "SELECT DISTINCT service_date::text FROM marts.mart_on_time_performance ORDER BY 1 DESC",
+        "refresh": 1,
+        "sort": 0,
+        "current": {},
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "type": "query",
+        "name": "mode",
+        "label": "Mode",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "transit-postgres"
+        },
+        "query": "SELECT DISTINCT mode FROM marts.mart_on_time_performance ORDER BY 1",
+        "definition": "SELECT DISTINCT mode FROM marts.mart_on_time_performance ORDER BY 1",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Measured delay vs timetable.** Departure delay measured by the platform against the published timetable, from the analytical marts (rebuilt hourly). Days and hours are Helsinki local time; on-time means between 60 s early and 180 s late, counted at timing points."
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "On time at timing points",
+      "description": "measured delay vs timetable",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 2,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT sum(on_time)::float / nullif(sum(departures), 0) AS on_time\nFROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Departures at timing points",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 2,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT sum(departures) AS departures FROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Bunched pairs",
+      "description": "Share of consecutive departures closer than half their scheduled headway.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 2,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT sum(bunched_pairs)::float / nullif(sum(observed_pairs), 0) AS bunched\nFROM marts.mart_bunching\nWHERE service_date = '$day' AND mode IN ($mode)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Planned trips seen",
+      "description": "Trips planned to depart while data was arriving that reported an arrival or departure. Metro and ferries send no stop events and are not counted.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 2,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT sum(seen_trips)::float / nullif(sum(expected_trips), 0) AS seen\nFROM marts.mart_data_completeness\nWHERE service_date = '$day' AND mode IN ($mode)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "On time and average delay by hour (measured delay vs timetable)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT lpad(hour_local::text, 2, '0') || ':00' AS hour,\n       round((sum(on_time)::float / nullif(sum(departures), 0) * 100)::numeric, 1) AS on_time_pct,\n       round((sum(avg_delay_s * departures) / nullif(sum(departures), 0))::numeric) AS avg_delay_s\nFROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY hour_local\nORDER BY hour_local"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "on_time_pct"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "on time"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_delay_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "average delay"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "hour",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "barWidth": 0.8,
+        "groupWidth": 0.7
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Lines (measured delay vs timetable)",
+      "description": "Lines with at least ten departures at timing points that day, least punctual first.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT route_short_name AS line, mode,\n       sum(departures) AS departures,\n       round((sum(on_time)::float / sum(departures))::numeric, 3) AS on_time_share,\n       round((sum(avg_delay_s * departures) / sum(departures))::numeric) AS avg_delay_s,\n       max(p90_delay_s) AS worst_hour_p90_s\nFROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY 1, 2\nHAVING sum(departures) >= 10\nORDER BY on_time_share, avg_delay_s DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "on_time_share"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "on time"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_delay_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "avg delay"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "worst_hour_p90_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "p90, worst hour"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "line"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mode"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "departures"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Stops (measured delay vs timetable)",
+      "description": "Stops with at least ten departures. At stops that are not timing points the timetable's times are approximate and can read up to two minutes late.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT stop_code AS stop, stop_name AS name, modes,\n       sum(departures) AS departures,\n       round((sum(on_time_share * departures) / sum(departures))::numeric, 3) AS on_time_share,\n       round((sum(avg_delay_s * departures) / sum(departures))::numeric) AS avg_delay_s,\n       bool_or(is_timing_point) AS timing_point\nFROM marts.mart_stop_punctuality\nWHERE service_date = '$day'\nGROUP BY 1, 2, 3\nHAVING sum(departures) >= 10\nORDER BY avg_delay_s DESC\nLIMIT 50"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "on_time_share"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "on time"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_delay_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "avg delay"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "timing_point"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "timing point"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stop"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "modes"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "departures"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Bunching by line and stop",
+      "description": "Pairs of consecutive trips observed at a stop; bunched below half, a gap above one and a half times the scheduled headway.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT route_short_name AS line, mode, direction_id AS direction, stop_code AS stop, stop_name AS name,\n       sum(observed_pairs) AS pairs, sum(bunched_pairs) AS bunched, sum(gap_pairs) AS gaps,\n       round(avg(avg_scheduled_headway_s)::numeric) AS scheduled_headway_s,\n       round(avg(avg_observed_headway_s)::numeric) AS observed_headway_s\nFROM marts.mart_bunching\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY 1, 2, 3, 4, 5\nHAVING sum(bunched_pairs) > 0\nORDER BY bunched DESC, pairs DESC\nLIMIT 50"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "scheduled_headway_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "scheduled headway"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "observed_headway_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "observed headway"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "line"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mode"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "direction"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stop"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Data completeness by line",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT route_short_name AS line, mode, expected_trips, seen_trips, seen_share\nFROM marts.mart_data_completeness\nWHERE service_date = '$day' AND mode IN ($mode)\nORDER BY seen_share, expected_trips DESC\nLIMIT 50"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "expected_trips"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "expected trips"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seen_trips"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "seen"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seen_share"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "share seen"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "barchart",
+      "title": "On time by service day (measured delay vs timetable)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT service_date::text AS day,\n       round((sum(on_time)::float / nullif(sum(departures), 0) * 100)::numeric, 1) AS on_time_pct\nFROM marts.mart_on_time_performance\nWHERE mode IN ($mode) AND service_date >= current_date - 30\nGROUP BY service_date\nORDER BY service_date"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "on_time_pct"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "on time"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "day",
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ]
+}

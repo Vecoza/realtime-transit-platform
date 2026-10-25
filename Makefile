@@ -65,8 +65,8 @@ aggregate:  ## Per-minute event-time statistics from the raw topic (consumer gro
 archive:  ## Move old day partitions and replaced timetable versions to Parquet
 	python -m archive.lifecycle
 
-marts:  ## Build and test the dbt models in DuckDB
-	dbt build --project-dir dbt --profiles-dir dbt
+marts:  ## Build and test the dbt models in DuckDB, then publish the marts to PostgreSQL
+	dbt build --project-dir dbt --profiles-dir dbt; status=$$?; python -m analytics.publish; exit $$status
 
 scheduler:  ## Build and start the scheduler container (GTFS refresh, archive, dbt)
 	docker compose --profile jobs up -d --build scheduler

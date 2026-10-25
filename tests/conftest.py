@@ -92,12 +92,17 @@ def reset_data(conn: psycopg.Connection) -> None:
         """).fetchall()
         for (partition,) in partitions:
             conn.execute(f"DROP TABLE {partition}")
+        published = conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'marts'"
+        ).fetchall()
+        for (table,) in published:
+            conn.execute(f"DROP TABLE marts.{table}")
         conn.execute("TRUNCATE gtfs.feed_versions RESTART IDENTITY CASCADE")
         conn.execute("""
             TRUNCATE rt.vehicle_positions, rt.stop_events, meta.consumer_metrics,
                 rt.route_minute_stats, rt.stop_minute_stats, rt.late_events, rt.vehicle_status,
                 meta.aggregator_progress, meta.aggregator_watermarks, meta.aggregator_metrics,
-                meta.archive_runs
+                meta.archive_runs, meta.dbt_runs
         """)
 
 

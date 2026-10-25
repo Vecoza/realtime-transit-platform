@@ -6,5 +6,6 @@
 # Storage lifecycle: archive day partitions past their retention, retire old versions
 40 0 * * * python -m archive.lifecycle
 
-# Analytical models and their tests
-15 * * * * dbt build --project-dir dbt --profiles-dir dbt
+# Analytical models and their tests; then publish the marts to PostgreSQL for Grafana.
+# The publish step records every run, also a failed one, and then publishes nothing.
+15 * * * * dbt build --project-dir dbt --profiles-dir dbt; python -m analytics.publish

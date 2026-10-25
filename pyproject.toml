@@ -36,7 +36,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
-include = ["transit_platform*", "gtfs*", "producer*", "processor*", "archive*"]
+include = ["transit_platform*", "gtfs*", "producer*", "processor*", "archive*", "analytics*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

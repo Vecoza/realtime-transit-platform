@@ -155,6 +155,15 @@ class ArchiveSettings:
 
 
 @dataclass(frozen=True)
+class AnalyticsSettings:
+    duckdb_path: Path = Path("data/warehouse.duckdb")
+
+    @classmethod
+    def from_env(cls) -> AnalyticsSettings:
+        return cls(duckdb_path=Path(os.getenv("DUCKDB_PATH", "data/warehouse.duckdb")))
+
+
+@dataclass(frozen=True)
 class SourceSettings:
     mqtt_host: str
     mqtt_port: int

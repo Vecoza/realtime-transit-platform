@@ -37,6 +37,7 @@ RT_TABLES = {
     "meta.aggregator_watermarks",
     "meta.aggregator_metrics",
     "meta.archive_runs",
+    "meta.dbt_runs",
 }
 FUNCTIONS = 5
 

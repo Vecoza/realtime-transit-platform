@@ -53,6 +53,12 @@ DuckDB attaches PostgreSQL read-only and reads the Parquet archive directly:
 
 Two tests check the data across systems: the planned time the sink stored on each event equals the departure in the exported timetable, and every archived day still holds exactly the rows the archive log verified (the reconciliation of PostgreSQL, Parquet and what was stored).
 
+## Published to PostgreSQL
+
+The dashboards read only PostgreSQL, so after every hourly build the four marts are copied into the schema `marts` (`analytics.publish`). Each one is written to a new table next to the current one (`mart_bunching__next`), given its primary key and analysed, and then swapped in: drop the old table and rename the new one, in one transaction. A dashboard query sees the previous build or the new one, never a half-filled table, and waits at most for the moment of the swap. Readers get access through the schema's default privileges, so a new table is readable as soon as it exists.
+
+The publish step also records the dbt run in `meta.dbt_runs`: when it ran, how long it took, how many models and tests ran and how many failed, and whether the marts were published. A run with a failed model or test is recorded and publishes nothing, so the dashboards keep the last build that passed its tests. Publishing the four marts of the Saturday sample (9,255 rows) takes 0.4 seconds.
+
 ## Plausibility: measured against live delay
 
 The marts use the platform's `measured_delay_s`. HSL's own estimate, `live_delay_s`, comes with every event and is computed independently, so the two should tell the same story for the same departures. For the five routes and five stops with the highest average delay on the Saturday sample (at least 15 departures each):

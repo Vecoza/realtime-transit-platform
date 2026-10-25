@@ -5,6 +5,7 @@ PostgreSQL, then the day is moved to Parquet and the timetable version it was ma
 dropped, and the marts are built again from the archive.
 """
 
+import json
 import shutil
 import subprocess
 import sys
@@ -16,12 +17,13 @@ import duckdb
 import psycopg
 import pytest
 
+from analytics.publish import run as publish_marts
 from archive.lifecycle import Lifecycle, connect_duckdb
 from processor.decode import Event, decode
 from processor.store import ensure_partitions, event_days, write_events
 from producer.recording import read_envelopes
 from tests.conftest import REPO_ROOT, load_build
-from transit_platform.config import ArchiveSettings, DatabaseSettings
+from transit_platform.config import AnalyticsSettings, ArchiveSettings, DatabaseSettings
 
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
 DBT_DIR = REPO_ROOT / "dbt"
@@ -119,3 +121,68 @@ def test_marts_are_identical_before_and_after_archiving(
     assert {row["route_short_name"] for row in before["mart_on_time_performance"]} == {"79", "400"}
     assert all(row["stop_name"] for row in before["mart_bunching"])
     assert after == before
+
+
+def published(conn: psycopg.Connection, mart: str) -> list[dict]:
+    cursor = conn.execute(f"SELECT * FROM marts.{mart}")
+    columns = [column.name for column in cursor.description]
+    rows = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+    return sorted(rows, key=lambda row: tuple(str(value) for value in row.values()))
+
+
+def test_marts_are_published_to_postgres_and_replaced_by_the_next_build(
+    conn: psycopg.Connection,
+    migrated: DatabaseSettings,
+    lifecycle: Lifecycle,
+    warehouse: Path,
+    tmp_path: Path,
+) -> None:
+    feed_dir = tmp_path / "gtfs"
+    shutil.copytree(FIXTURES / "gtfs_saturday_routes", feed_dir)
+    load_build(conn, feed_dir, tmp_path, "2026-10-24")
+    conn.commit()
+    store_saturday(conn)
+    lifecycle.run(date(2026, 10, 25))
+    results = DBT_DIR / "target" / "run_results.json"
+
+    built = build_marts(warehouse)
+    assert publish_marts(migrated, AnalyticsSettings(warehouse), results) == len(MARTS)
+    publish_marts(migrated, AnalyticsSettings(warehouse), results)
+
+    for mart in MARTS:
+        expected = sorted(built[mart], key=lambda row: tuple(str(v) for v in row.values()))
+        assert published(conn, mart) == expected
+    assert conn.execute(
+        "SELECT count(*) FROM pg_tables WHERE schemaname = 'marts' AND tablename LIKE '%%__next'"
+    ).fetchone() == (0,)
+    assert conn.execute(
+        "SELECT models, failed, published_tables FROM meta.dbt_runs"
+    ).fetchall() == [(12, 0, 4)]
+
+
+def test_a_failed_build_is_recorded_and_publishes_nothing(
+    conn: psycopg.Connection, migrated: DatabaseSettings, tmp_path: Path
+) -> None:
+    results = tmp_path / "run_results.json"
+    results.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "invocation_id": "6f0c1d3e-2a4b-4c5d-8e9f-0a1b2c3d4e5f",
+                    "invocation_started_at": "2026-10-25T18:00:00Z",
+                    "generated_at": "2026-10-25T18:00:09Z",
+                },
+                "elapsed_time": 9.0,
+                "results": [
+                    {"unique_id": "model.transit_platform.int_departures", "status": "success"},
+                    {"unique_id": "test.transit_platform.on_time_counts", "status": "fail"},
+                ],
+            }
+        )
+    )
+
+    assert publish_marts(migrated, AnalyticsSettings(tmp_path / "missing.duckdb"), results) == 0
+
+    assert conn.execute(
+        "SELECT models, tests, failed, published_tables, published_at FROM meta.dbt_runs"
+    ).fetchall() == [(1, 1, 1, 0, None)]

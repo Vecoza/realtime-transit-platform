@@ -25,6 +25,7 @@ COPY gtfs gtfs
 COPY producer producer
 COPY processor processor
 COPY archive archive
+COPY analytics analytics
 RUN pip install --no-cache-dir -c constraints.txt ".[analytics]"
 
 COPY --chown=app dbt dbt

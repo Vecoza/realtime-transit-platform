@@ -71,7 +71,7 @@ Three jobs run on a schedule in one container (`docker/app.Dockerfile`, `docker/
 |---|---|
 | 03:30 daily | GTFS refresh, then the lifecycle job, which exports the new version to Parquet |
 | 00:40 daily | Lifecycle: archive old days, retire timetable versions |
-| :15 every hour | `dbt build`: the analytical models and their tests |
+| :15 every hour | `dbt build`: the analytical models and their tests, then publish the marts to PostgreSQL |
 
 The scheduler is [supercronic](https://github.com/aptible/supercronic), a single binary that runs a crontab inside a container, logs to standard output and, unless told otherwise (`-overlapping`), does not start a job while its previous run is still going. The jobs carry no state between runs: each one works out from the database what is due, so a run that was missed or failed is caught up by the next one, and a job can be run by hand at any time with `make`.
 

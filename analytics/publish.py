@@ -1,4 +1,4 @@
-"""Publish the analytical marts from DuckDB into the PostgreSQL schema ``marts``.
+"""Publish the analytical marts and the route and stop names from DuckDB into ``marts``.
 
 Grafana reads only PostgreSQL. Each mart is copied into a new table next to the current one,
 given its primary key, and swapped in with two renames in one short transaction, so a reader
@@ -33,6 +33,8 @@ MARTS = {
     "mart_stop_punctuality": ("service_date", "hour_local", "stop_id"),
     "mart_bunching": ("service_date", "hour_local", "route_id", "direction_id", "stop_id"),
     "mart_data_completeness": ("service_date", "route_id"),
+    "dim_routes": ("route_id",),
+    "dim_stops": ("stop_id",),
 }
 FAILED = {"error", "fail", "runtime error"}
 LOCK_TIMEOUT = "10s"

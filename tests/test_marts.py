@@ -17,6 +17,7 @@ import duckdb
 import psycopg
 import pytest
 
+from analytics.publish import MARTS as PUBLISHED
 from analytics.publish import run as publish_marts
 from archive.lifecycle import Lifecycle, connect_duckdb
 from processor.decode import Event, decode
@@ -146,18 +147,20 @@ def test_marts_are_published_to_postgres_and_replaced_by_the_next_build(
     results = DBT_DIR / "target" / "run_results.json"
 
     built = build_marts(warehouse)
-    assert publish_marts(migrated, AnalyticsSettings(warehouse), results) == len(MARTS)
+    assert publish_marts(migrated, AnalyticsSettings(warehouse), results) == len(PUBLISHED)
     publish_marts(migrated, AnalyticsSettings(warehouse), results)
 
     for mart in MARTS:
         expected = sorted(built[mart], key=lambda row: tuple(str(v) for v in row.values()))
         assert published(conn, mart) == expected
+    names = dict(conn.execute("SELECT route_id, route_short_name FROM marts.dim_routes"))
+    assert names == {"1079": "79", "4400": "400"}
     assert conn.execute(
         "SELECT count(*) FROM pg_tables WHERE schemaname = 'marts' AND tablename LIKE '%%__next'"
     ).fetchone() == (0,)
     assert conn.execute(
         "SELECT models, failed, published_tables FROM meta.dbt_runs"
-    ).fetchall() == [(12, 0, 4)]
+    ).fetchall() == [(14, 0, len(PUBLISHED))]
 
 
 def test_a_failed_build_is_recorded_and_publishes_nothing(

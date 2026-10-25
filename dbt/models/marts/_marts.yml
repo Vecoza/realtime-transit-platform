@@ -1,6 +1,16 @@
 version: 2
 
 models:
+  - name: dim_routes
+    description: Route short name and mode for every route id, from the newest timetable version.
+    columns:
+      - name: route_id
+        tests: [unique, not_null]
+  - name: dim_stops
+    description: Stop code and name for every stop id, from the newest timetable version.
+    columns:
+      - name: stop_id
+        tests: [unique, not_null]
   - name: mart_on_time_performance
     description: >
       Departure punctuality at timing points per route, service day and local hour. On time

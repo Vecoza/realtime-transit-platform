@@ -29,6 +29,7 @@ DuckDB attaches PostgreSQL read-only and reads the Parquet archive directly:
 | `mart_stop_punctuality` | service day × local hour × stop | delay at every stop |
 | `mart_bunching` | service day × local hour × route × direction × stop | observed against scheduled headway |
 | `mart_data_completeness` | service day × route | trips planned against trips seen |
+| `dim_routes`, `dim_stops` | route, stop | short name and mode, code and name, from the newest timetable version: the live tables in PostgreSQL carry only ids, and the dashboards' role does not read the timetable schema |
 
 **Local time.** The marts report the operating day (`oday`, the service day of the timetable) and the hour in Helsinki time. The hour is taken from the planned time, so a late departure counts in the hour it was due. On the night the clocks go back, both 03:00 hours are reported as hour 3.
 
@@ -55,7 +56,7 @@ Two tests check the data across systems: the planned time the sink stored on eac
 
 ## Published to PostgreSQL
 
-The dashboards read only PostgreSQL, so after every hourly build the four marts are copied into the schema `marts` (`analytics.publish`). Each one is written to a new table next to the current one (`mart_bunching__next`), given its primary key and analysed, and then swapped in: drop the old table and rename the new one, in one transaction. A dashboard query sees the previous build or the new one, never a half-filled table, and waits at most for the moment of the swap. Readers get access through the schema's default privileges, so a new table is readable as soon as it exists.
+The dashboards read only PostgreSQL, so after every hourly build the four marts and the two name tables are copied into the schema `marts` (`analytics.publish`). Each one is written to a new table next to the current one (`mart_bunching__next`), given its primary key and analysed, and then swapped in: drop the old table and rename the new one, in one transaction. A dashboard query sees the previous build or the new one, never a half-filled table, and waits at most for the moment of the swap. Readers get access through the schema's default privileges, so a new table is readable as soon as it exists.
 
 The publish step also records the dbt run in `meta.dbt_runs`: when it ran, how long it took, how many models and tests ran and how many failed, and whether the marts were published. A run with a failed model or test is recorded and publishes nothing, so the dashboards keep the last build that passed its tests. Publishing the four marts of the Saturday sample (9,255 rows) takes 0.4 seconds.
 

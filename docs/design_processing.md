@@ -97,7 +97,7 @@ HSL's own scheduled times (`ttarr`/`ttdep`) are an independent check of the matc
 - **Not another build.** The trip in the previous day's build has the same times; none of the 291 equals HSL's time there either.
 - **Approximate stops.** 284 of the 291 (97.6%) are at stops that GTFS marks `timepoint=0`, where the published times are approximate. On those stops 1.1% of events disagree, on timing points 0.3%. The differences appear at the same stops on consecutive trips of a route and are back to zero at the next timing point. HSL's vehicle timetable interpolates between timing points differently from its GTFS export.
 
-The platform's delay is therefore exact at timing points and can be off by a minute or two between them. The `timepoint` flag is not loaded yet; it is the column a punctuality analysis would filter on.
+The platform's delay is therefore exact at timing points and can be off by a minute or two between them. The timetable's `timepoint` flag is loaded with the stop times (about 8% of them are timing points), and the on-time analysis uses departures at timing points only.
 
 ## The night the clocks go back
 

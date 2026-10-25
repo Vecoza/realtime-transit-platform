@@ -118,13 +118,13 @@ WHERE replaced_on IS NULL
 
 With one build a day this is about eight versions, roughly 11 GB, almost all of it `stop_times`.
 
-**What happens to an older version.** Before a version is dropped, the maintenance job exports the tables that describe the published timetable to Parquet, then removes the version from PostgreSQL:
+**What happens to an older version.** The storage lifecycle job ([design_lifecycle.md](design_lifecycle.md)) exports every version to Parquet as soon as it is loaded, not only before it is dropped, because the analytical models read the timetable from there:
 
-1. Export `stop_times`, `trips` and `service_dates` of that `feed_id` to `data/archive/gtfs/<table>/feed_id=<n>/`.
-2. Verify the row count of every file against PostgreSQL, and record the export in `meta.archive_runs`.
-3. `DROP TABLE gtfs.stop_times_<n>`, then `DELETE FROM gtfs.feed_versions WHERE feed_id = <n>`; the foreign keys cascade to the small tables.
+1. Export `stop_times`, `trips`, `service_dates`, `routes` and `stops` of that `feed_id` to `data/archive/gtfs/<table>/feed_id=<n>/`.
+2. Verify the row count of every file against PostgreSQL, and record both steps in `meta.archive_runs`.
+3. Once the version falls outside the set above: `DROP TABLE gtfs.stop_times_<n>`, then `DELETE FROM gtfs.feed_versions WHERE feed_id = <n>`; the foreign keys cascade to the small tables. This happens in one transaction, together with its `dropped` record.
 
-Each step is idempotent. A version that has been exported but not dropped is exported again or skipped based on `meta.archive_runs`, and nothing is dropped without a verified export. The export keeps the schedule history available for analysis in DuckDB, for example to compare how a route's timetable changed between builds.
+Each step is idempotent. A version whose verified export is still in place for the same row count is not exported again, and nothing is dropped without a verified export of every table. A version is 8.76 million `stop_times` rows: 1,508 MB in PostgreSQL with its indexes, 17 MB in Parquet, exported in 15 seconds. Dropping it takes about 50 seconds, most of it the cascading deletes of trips and shapes. The export keeps the schedule history available in DuckDB, which the analytical models use for days whose version is no longer in PostgreSQL.
 
 **Why stored history never needs an old feed in PostgreSQL.** The stream processor matches each event to the current feed when the event arrives. It stores the result on the event row: the planned time, `trip_id`, `route_id`, direction and `feed_id`. From then on, delay and punctuality are computed from the event row alone. Old versions are kept for the window in which events can still arrive late or be replayed, not for reading stored history. This also matters because `trip_id` values change with every build: resolving an old event against a later feed would fail.
 

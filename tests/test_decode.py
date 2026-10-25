@@ -31,6 +31,25 @@ def test_live_delay_is_positive_when_late(dl: int | None, live_delay: int | None
     assert decoded(hfp_envelope(dl=dl)).live_delay_s == live_delay
 
 
+@pytest.mark.parametrize(
+    ("oday", "start", "tst", "offset"),
+    [
+        (date(2026, 10, 24), "03:13", datetime(2026, 10, 25, 0, 40, tzinfo=UTC), 27 * 3600 + 780),
+        (date(2026, 10, 24), "03:13", datetime(2026, 10, 25, 1, 2, tzinfo=UTC), 27 * 3600 + 780),
+        (date(2026, 10, 24), "03:13", datetime(2026, 10, 25, 1, 5, tzinfo=UTC), 28 * 3600 + 780),
+        (date(2026, 10, 24), "03:13", datetime(2026, 10, 25, 1, 40, tzinfo=UTC), 28 * 3600 + 780),
+        (date(2026, 10, 24), "04:10", datetime(2026, 10, 25, 2, 15, tzinfo=UTC), 29 * 3600 + 600),
+        (date(2026, 10, 25), "05:00", datetime(2026, 10, 25, 3, 5, tzinfo=UTC), 5 * 3600),
+        (date(2027, 3, 27), "02:30", datetime(2027, 3, 28, 0, 35, tzinfo=UTC), 26 * 3600 + 1800),
+    ],
+)
+def test_start_offset_on_the_nights_the_clocks_change(
+    oday: date, start: str, tst: datetime, offset: int
+) -> None:
+    hours, minutes = map(int, start.split(":"))
+    assert start_offset_seconds(oday, time(hours, minutes), tst) == offset
+
+
 def test_end_of_line_is_not_a_next_stop() -> None:
     assert decoded(hfp_envelope(next_stop="EOL")).next_stop_id is None
 

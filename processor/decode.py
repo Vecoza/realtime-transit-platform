@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
 from typing import Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from gtfs.service_time import service_day_start
+from gtfs.service_time import HELSINKI, service_day_start
 from producer.hfp import Envelope, parse_topic
 
 EVENT_KEYS = {"vp": "VP", "arr": "ARR", "dep": "DEP"}
 MAX_EVENT_AGE = timedelta(days=1)
 MAX_CLOCK_AHEAD = timedelta(minutes=10)
 NEXT_SERVICE_DAY_AFTER = timedelta(hours=12)
+START_LEAD = timedelta(minutes=10)
 
 
 class HfpPayload(BaseModel):
@@ -111,14 +112,27 @@ def _day_start(oday: date) -> datetime:
 def start_offset_seconds(oday: date, start: time, tst: datetime) -> int:
     """GTFS-style offset of the trip's scheduled start on its operating day.
 
-    HFP gives ``start`` on a 24-hour clock, so a trip that starts at 25:10 in GTFS reports
-    01:10. When ``start`` read on the operating day lies far before the event, the trip must
-    have started after midnight, and a day is added.
+    HFP gives ``start`` as local wall-clock time on a 24-hour clock, so a trip that starts at
+    25:10 in GTFS reports 01:10. When ``start`` read on the operating day lies far before the
+    event, the trip started after midnight, on the next calendar day.
     """
-    offset = start.hour * 3600 + start.minute * 60
-    if tst - (_day_start(oday) + timedelta(seconds=offset)) > NEXT_SERVICE_DAY_AFTER:
-        offset += 86400
-    return offset
+    day = oday
+    if tst - wall_clock_start(oday, start, tst) > NEXT_SERVICE_DAY_AFTER:
+        day = oday + timedelta(days=1)
+    return int((wall_clock_start(day, start, tst) - _day_start(oday)).total_seconds())
+
+
+def wall_clock_start(day: date, start: time, tst: datetime) -> datetime:
+    """The UTC instant of a local start time.
+
+    When the clocks go back, a start in the repeated hour has two readings, an hour apart.
+    The later one is taken once it is at most ``START_LEAD`` ahead of the event: vehicles
+    report on their next trip only shortly before it starts.
+    """
+    local = datetime.combine(day, start, tzinfo=HELSINKI)
+    earlier = local.astimezone(UTC)
+    later = local.replace(fold=1).astimezone(UTC)
+    return later if earlier < later <= tst + START_LEAD else earlier
 
 
 def payload_hash(payload: str) -> bytes:

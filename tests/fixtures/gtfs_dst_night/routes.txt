@@ -1,0 +1,7 @@
+route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_url
+1009N,HSL,9N,Jätkäsaari - Päärautatieas. - Kallio - Ilmala,,0,http://aikataulut.hsl.fi/linjat/fi/h9N.html
+1074N,HSL,74N,Rautatientori-Malmi-Tapanila-Puistola-Heikinlaakso,,701,http://aikataulut.hsl.fi/linjat/fi/h74n.html
+2112N,HSL,112N,Kamppi-Lauttasaari (M)-Westend-Matinkylä(M)-Friisilä,,701,http://aikataulut.hsl.fi/linjat/fi/b112N.html
+3002P,HSL,P,Helsinki-Helsinki,,109,https://www.vr.fi/cs/vr/fi/paakaupunkiseudun_lahiliikenne
+4415N,HSL,415N,Elielinaukio-Myyrmäki-Ylästö-Lentoasema,,701,http://aikataulut.hsl.fi/linjat/fi/b415N.html
+9665N,HSL,665N,Rautatientori-Hyrylä-Järvenpää-Jamppa-Kellokoski,,701,http://aikataulut.hsl.fi/linjat/fi/b665N.html

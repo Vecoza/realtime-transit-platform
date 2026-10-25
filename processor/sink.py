@@ -215,16 +215,20 @@ class StorageSink:
         )
 
     def consumer_lag(self) -> int | None:
-        """Messages behind the end of each assigned partition, from cached watermarks."""
-        try:
-            lag = 0
-            for position in self.consumer.position(self.consumer.assignment()):
-                _low, high = self.consumer.get_watermark_offsets(position, cached=True)
-                if position.offset >= 0 and high >= 0:
-                    lag += max(high - position.offset, 0)
-            return lag
-        except Exception:
-            return None
+        return consumer_lag(self.consumer)
+
+
+def consumer_lag(consumer: Consumer) -> int | None:
+    """Messages behind the end of each assigned partition, from cached watermarks."""
+    try:
+        lag = 0
+        for position in consumer.position(consumer.assignment()):
+            _low, high = consumer.get_watermark_offsets(position, cached=True)
+            if position.offset >= 0 and high >= 0:
+                lag += max(high - position.offset, 0)
+        return lag
+    except Exception:
+        return None
 
 
 def parse_envelope(message: Message) -> Envelope | Rejection:

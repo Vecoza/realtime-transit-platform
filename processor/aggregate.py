@@ -40,7 +40,7 @@ from confluent_kafka import (
 from confluent_kafka.admin import AdminClient
 
 from processor.decode import Event, Rejection, decode
-from processor.sink import Hooks, parse_envelope
+from processor.sink import Hooks, consumer_lag, parse_envelope
 from processor.store import JOURNEY_MATCH_CTE, copy_rows, ensure_partitions, upcoming_days
 from processor.windows import (
     MINUTE,
@@ -474,10 +474,10 @@ class EventTimeAggregator:
                 group_id, messages, invalid, copies, duplicates, applied, late, dropped,
                 no_window, windows_emitted, windows_corrected, vehicles_stale,
                 vehicles_finished, open_windows, retained_events, idle_partitions, watermark,
-                max_event_time, poll_ms, process_ms, db_ms
+                max_event_time, consumer_lag, poll_ms, process_ms, db_ms
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s)
             """,
             (
                 self.settings.group_id,
@@ -498,6 +498,7 @@ class EventTimeAggregator:
                 len(self.windows.watermark.idle()),
                 self.windows.watermark.value,
                 max(max_times, default=None),
+                consumer_lag(self.consumer),
                 timings["poll_ms"],
                 timings["process_ms"],
                 timings["db_ms"],

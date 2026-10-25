@@ -258,13 +258,13 @@ def assert_matches_batch(database: DatabaseSettings, group_id: str) -> dict[str,
         outcomes = dict(
             conn.execute("SELECT outcome, count(*) FROM rt.late_events GROUP BY 1").fetchall()
         )
-        stale = conn.execute(
-            "SELECT coalesce(sum(vehicles_stale), 0) FROM meta.aggregator_metrics"
-            " WHERE group_id = %s",
+        stale, lag_recorded = conn.execute(
+            "SELECT coalesce(sum(vehicles_stale), 0), count(consumer_lag)"
+            " FROM meta.aggregator_metrics WHERE group_id = %s",
             (group_id,),
-        ).fetchone()[0]
+        ).fetchone()
         windows = conn.execute("SELECT count(*) FROM rt.route_minute_stats").fetchone()[0]
-    return {**outcomes, "stale": stale, "route_windows": windows}
+    return {**outcomes, "stale": stale, "route_windows": windows, "lag_recorded": lag_recorded}
 
 
 def run_live(harness: Harness, run: AggregatorRun, chunks: int | None = None) -> None:
@@ -287,6 +287,7 @@ def test_streaming_aggregates_equal_a_batch_recomputation(harness: Harness) -> N
     assert summary["dropped"] > 0
     assert summary["stale"] >= 1
     assert summary["route_windows"] == 6 * 5
+    assert summary["lag_recorded"] > 0
 
 
 @pytest.mark.parametrize("point", ["before_db_commit", "before_offset_commit", "clean_stop"])

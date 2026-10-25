@@ -46,7 +46,7 @@ Detach and drop run in one transaction together with their two records, so a par
 - A run stopped in the middle of an export leaves only a `.partial` file and no record; the next run exports again.
 - An export that does not match is never dropped. The test replaces the export with one that is one row short: the run stops with `exported`, `failed`, and the partition is untouched.
 - A second run with nothing to do adds no records and takes about a second.
-- If a partition for an archived day appears again (a replay of an old recording would create it), the job records a `failed` step and leaves both the partition and the archive alone, instead of overwriting the archive with a part of the day.
+- An archived day is never created again. Consuming old data (a replay of an old recording, or a topic that still holds earlier days) would otherwise create empty partitions for days that live in Parquet; this happened once, when an aggregator started from the beginning of a day-old topic. `rt.ensure_day_partitions` now skips every day with a `dropped` record, so such rows land in the table's default partition, outside the analytical models and visible in the partition sizes. Should a partition for an archived day still appear, the job records a `failed` step and leaves both the partition and the archive alone, instead of overwriting the archive with a part of the day.
 - Two runs never work at the same time: a run takes a PostgreSQL advisory lock and exits at once if another run holds it.
 
 ## Measured

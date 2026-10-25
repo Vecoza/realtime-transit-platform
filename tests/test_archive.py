@@ -205,3 +205,21 @@ def test_a_run_while_another_is_active_does_nothing(
 
     assert partition_exists(lifecycle.conn, "rt.vehicle_positions_20261020")
     assert lifecycle.run(TODAY) is True
+
+
+def test_an_archived_day_is_not_created_again(
+    conn: psycopg.Connection, lifecycle: Lifecycle
+) -> None:
+    store_days(conn)
+    lifecycle.run(TODAY)
+
+    archived_day = conn.execute(
+        "SELECT rt.ensure_day_partitions(%s, %s)", (OLD_DAY, OLD_DAY)
+    ).fetchone()
+    other_day = conn.execute(
+        "SELECT rt.ensure_day_partitions('2026-10-19', '2026-10-19')"
+    ).fetchone()
+    conn.commit()
+
+    assert (archived_day, other_day) == ((0,), (4,))
+    assert not partition_exists(lifecycle.conn, "rt.vehicle_positions_20261020")

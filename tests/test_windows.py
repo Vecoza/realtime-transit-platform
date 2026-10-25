@@ -76,7 +76,7 @@ def test_out_of_order_events_within_the_lateness_are_counted_on_time() -> None:
     windows.add(event(71), 0)
     (minute,) = windows.advance().routes
     assert (minute.window_start, minute.vehicles, minute.positions) == (T0, 2, 3)
-    assert (minute.avg_delay_s, minute.p90_delay_s, minute.late_events) == (60.0, 84.0, 0)
+    assert (minute.avg_live_delay_s, minute.p90_live_delay_s, minute.late_events) == (60.0, 84.0, 0)
 
 
 def test_late_event_corrects_the_emitted_window_with_full_values() -> None:
@@ -91,7 +91,7 @@ def test_late_event_corrects_the_emitted_window_with_full_values() -> None:
     assert outcome == Outcome.LATE
     assert (first.positions, first.vehicles, first.late_events) == (1, 1, 0)
     assert (correction.positions, correction.vehicles, correction.late_events) == (2, 2, 1)
-    assert correction.avg_delay_s == 60.0
+    assert correction.avg_live_delay_s == 60.0
     assert [late.outcome for late in windows.take_late_events()] == ["corrected"]
 
 
@@ -171,7 +171,7 @@ def test_arrivals_count_towards_their_stop() -> None:
     (stop,) = windows.advance().stops
 
     assert (stop.stop_id, stop.window_start) == ("1010108", T0)
-    assert (stop.arrivals, stop.delay_samples, stop.avg_delay_s) == (2, 1, 40.0)
+    assert (stop.arrivals, stop.live_delay_samples, stop.avg_live_delay_s) == (2, 1, 40.0)
     assert StopWindow("1010108", T0) in windows.windows
 
 

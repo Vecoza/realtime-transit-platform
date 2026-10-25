@@ -91,6 +91,11 @@ class Event:
     def direction_id(self) -> int | None:
         return None if self.payload.dir is None else int(self.payload.dir) - 1
 
+    @property
+    def live_delay_s(self) -> int | None:
+        """HSL's own deviation from schedule, positive when late (``dl`` is negative then)."""
+        return None if self.payload.dl is None else -self.payload.dl
+
 
 @dataclass(frozen=True)
 class Rejection:

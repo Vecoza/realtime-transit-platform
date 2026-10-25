@@ -134,7 +134,7 @@ The official field description: "Offset from the scheduled timetable in seconds 
 
 The live data agrees. For `arr` events with both `dl` and `ttarr`, and where the vehicle is more than 30 seconds off schedule, the sign of `ttarr − tst` (positive when the vehicle arrives early) matches the sign of `dl` in 93% of cases (3,150 of 3,385, Saturday 24 October). The values do not match exactly. `arr` fires when the vehicle enters the stop radius, about 30 seconds before `dl`'s reference point (median residual +29.6 s), and `dep` fires after it leaves (median −16.4 s).
 
-The platform therefore never calls `dl` a delay. Its own delay is `actual − scheduled`, positive when late, and `dl` is kept under a separate name for comparison.
+The platform uses one sign everywhere: a delay is positive when the vehicle is late. `dl` is turned around as soon as a message is decoded and stored as `live_delay_s = −dl`. The platform's own delay against the timetable is `measured_delay_s`. Both are described in the processing design notes.
 
 ### Observed behaviour
 

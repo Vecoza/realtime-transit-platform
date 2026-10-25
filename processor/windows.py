@@ -68,9 +68,9 @@ class RouteMinute:
     window_start: datetime
     vehicles: int
     positions: int
-    delay_samples: int
-    avg_delay_s: float | None
-    p90_delay_s: float | None
+    live_delay_samples: int
+    avg_live_delay_s: float | None
+    p90_live_delay_s: float | None
     late_events: int
 
 
@@ -79,8 +79,8 @@ class StopMinute:
     stop_id: str
     window_start: datetime
     arrivals: int
-    delay_samples: int
-    avg_delay_s: float | None
+    live_delay_samples: int
+    avg_live_delay_s: float | None
     late_events: int
 
 
@@ -94,7 +94,7 @@ class LateEvent:
 
 @dataclass
 class WindowState:
-    """Counted events by identity: vehicle and delay (seconds late, from HSL's ``dl``)."""
+    """Counted events by identity: vehicle and live delay (seconds, positive when late)."""
 
     events: dict[bytes, tuple[int, int | None]] = field(default_factory=dict)
     late: set[bytes] = field(default_factory=set)
@@ -151,11 +151,6 @@ def window_of(event: Event) -> WindowKey | None:
     return None
 
 
-def delay_of(dl: int | None) -> int | None:
-    """Seconds behind schedule; HSL's ``dl`` is negative when the vehicle is late."""
-    return None if dl is None else -dl
-
-
 def percentile_cont(ordered: list[int], fraction: float) -> float | None:
     """Linear interpolation between the closest ranks, as PostgreSQL's percentile_cont."""
     if not ordered:
@@ -174,9 +169,9 @@ def route_minute(window: RouteWindow, state: WindowState) -> RouteMinute:
         window_start=window.start,
         vehicles=len({vehicle for vehicle, _ in state.events.values()}),
         positions=len(state.events),
-        delay_samples=len(delays),
-        avg_delay_s=sum(delays) / len(delays) if delays else None,
-        p90_delay_s=percentile_cont(delays, 0.9),
+        live_delay_samples=len(delays),
+        avg_live_delay_s=sum(delays) / len(delays) if delays else None,
+        p90_live_delay_s=percentile_cont(delays, 0.9),
         late_events=len(state.late),
     )
 
@@ -187,8 +182,8 @@ def stop_minute(window: StopWindow, state: WindowState) -> StopMinute:
         stop_id=window.stop_id,
         window_start=window.start,
         arrivals=len(state.events),
-        delay_samples=len(delays),
-        avg_delay_s=sum(delays) / len(delays) if delays else None,
+        live_delay_samples=len(delays),
+        avg_live_delay_s=sum(delays) / len(delays) if delays else None,
         late_events=len(state.late),
     )
 
@@ -284,7 +279,7 @@ class WindowAggregator:
             state = self.windows[window] = WindowState()
         state.events[key] = (
             vehicle_id(event.operator_id, event.vehicle_number),
-            delay_of(event.payload.dl),
+            event.live_delay_s,
         )
         state.changed = True
         if watermark is not None and watermark >= end + self.rules.allowed_lateness:

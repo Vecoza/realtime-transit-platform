@@ -55,7 +55,6 @@ from processor.windows import (
     WindowAggregator,
     WindowKey,
     WindowRules,
-    delay_of,
     event_key,
     vehicle_id,
 )
@@ -72,17 +71,17 @@ ROUTE_COLUMNS = (
     "window_start",
     "vehicles",
     "positions",
-    "delay_samples",
-    "avg_delay_s",
-    "p90_delay_s",
+    "live_delay_samples",
+    "avg_live_delay_s",
+    "p90_live_delay_s",
     "late_events",
 )
 STOP_COLUMNS = (
     "stop_id",
     "window_start",
     "arrivals",
-    "delay_samples",
-    "avg_delay_s",
+    "live_delay_samples",
+    "avg_live_delay_s",
     "late_events",
 )
 VEHICLE_COLUMNS = (
@@ -161,7 +160,7 @@ COUNTED_JOIN = """
 """
 REBUILD_POSITIONS_SQL = f"""
     SELECT route_id, direction_id, date_trunc('minute', tst, 'UTC'),
-           operator_id, vehicle_number, payload_hash, hfp_schedule_offset_s
+           operator_id, vehicle_number, payload_hash, live_delay_s
     FROM rt.vehicle_positions AS e
     {COUNTED_JOIN}
     WHERE tst >= %s AND route_id IS NOT NULL AND direction_id IS NOT NULL
@@ -169,7 +168,7 @@ REBUILD_POSITIONS_SQL = f"""
 """
 REBUILD_ARRIVALS_SQL = f"""
     SELECT stop_id, date_trunc('minute', tst, 'UTC'),
-           operator_id, vehicle_number, payload_hash, hfp_schedule_offset_s
+           operator_id, vehicle_number, payload_hash, live_delay_s
     FROM rt.stop_events AS e
     {COUNTED_JOIN}
     WHERE event_type = 'arr' AND tst >= %s AND stop_id IS NOT NULL
@@ -625,10 +624,10 @@ def add_stored_event(
     window: WindowKey,
     event: list,
 ) -> None:
-    operator_id, vehicle_number, payload_hash, dl = event
+    operator_id, vehicle_number, payload_hash, live_delay_s = event
     contents.setdefault(window, {})[event_key(operator_id, vehicle_number, payload_hash)] = (
         vehicle_id(operator_id, vehicle_number),
-        delay_of(dl),
+        live_delay_s,
     )
 
 

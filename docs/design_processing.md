@@ -101,19 +101,19 @@ The platform's delay is therefore exact at timing points and can be off by a min
 
 ## Two delays, side by side
 
-Stop events store both:
+Every delay in the platform is positive when the vehicle is late. There are two of them, with different sources and uses:
 
-- `delay_seconds = tst − planned_time`: the platform's delay, positive when late.
-- `hfp_schedule_offset_s`: HSL's `dl` as received, where negative means late.
+- **`live_delay_s`**: HSL's own deviation from schedule, `−dl`. HSL's `dl` is negative when late; the sign is turned once, when a message is decoded, and nowhere else. It is in every message, so it needs nothing but the stream. The aggregator uses it for the per-minute statistics, which must be computable from the stream alone.
+- **`measured_delay_s`**: `tst − planned_time`, the platform's own delay against the GTFS timetable that was valid on the operating day. It needs the trip match and the timetable join, which only the sink does. It is stored on stop events and is what the analytical models use, because its reference point is defined by the published timetable.
 
-They measure different moments. For matched events with both values, the difference `delay_seconds − (−dl)` is:
+Positions carry `live_delay_s` only; stop events carry both. They measure different moments. For matched events with both values, the difference `measured_delay_s − live_delay_s` is:
 
 | Event | Events | Median | p10 | p90 | Same sign when more than 60 s off |
 |---|---:|---:|---:|---:|---:|
 | `arr` | 14,096 | −29 s | −75 s | +13 s | 97.3% |
 | `dep` | 14,103 | +16 s | +4 s | +34 s | 99.7% |
 
-`arr` is sent when a vehicle enters the stop radius, about half a minute before the moment HSL's offset refers to, so the platform's arrival delay reads about 30 s lower. `dep` is sent after the vehicle leaves the radius, so the departure delay reads about 16 s higher. Analyses use `delay_seconds`, whose reference point is defined by the timetable. `dl` stays available to compare against.
+`arr` is sent when a vehicle enters the stop radius, about half a minute before the moment HSL's offset refers to, so the platform's arrival delay reads about 30 s lower. `dep` is sent after the vehicle leaves the radius, so the departure delay reads about 16 s higher. On average over the Saturday arrivals, `live_delay_s` is 115 s and `measured_delay_s` 77 s. The two agree on whether a vehicle is more than a minute late or early in 97–99.7% of events, so either is fine for a live view; for punctuality against the timetable, the analytical models use `measured_delay_s`.
 
 ## Partitions
 

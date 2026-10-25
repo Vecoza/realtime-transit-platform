@@ -26,6 +26,11 @@ def test_vehicle_position_is_decoded_with_topic_identity_and_gtfs_direction() ->
     assert event.start_offset_seconds == 5 * 3600 + 37 * 60
 
 
+@pytest.mark.parametrize(("dl", "live_delay"), [(-90, 90), (45, -45), (0, 0), (None, None)])
+def test_live_delay_is_positive_when_late(dl: int | None, live_delay: int | None) -> None:
+    assert decoded(hfp_envelope(dl=dl)).live_delay_s == live_delay
+
+
 def test_end_of_line_is_not_a_next_stop() -> None:
     assert decoded(hfp_envelope(next_stop="EOL")).next_stop_id is None
 

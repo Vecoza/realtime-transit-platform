@@ -4,14 +4,14 @@ The aggregator is the consumer group `aggregator` on `hfp.raw`. It reads the sam
 
 | Table | One row per | Values |
 |---|---|---|
-| `rt.route_minute_stats` | route, direction, minute | vehicles, positions, delay samples, average and p90 delay |
-| `rt.stop_minute_stats` | stop, minute | arrivals, delay samples, average delay |
+| `rt.route_minute_stats` | route, direction, minute | vehicles, positions, live delay samples, average and p90 live delay |
+| `rt.stop_minute_stats` | stop, minute | arrivals, live delay samples, average live delay |
 | `rt.vehicle_status` | vehicle | last event, position and journey; `active` or `stale` |
 | `rt.late_events` | late event | the window it belonged to, the watermark when it arrived, `corrected` or `dropped` |
 
 Every window row also carries `late_events`, `revision`, `first_emitted_at` and `emitted_at`.
 
-The delay in these tables is HSL's own schedule deviation (`-dl`, positive when late), taken from the message itself. A stream aggregate has to be computable from the stream alone; the platform's own delay against the timetable needs the timetable join that the sink does, and it is in `rt.stop_events` for analyses.
+The delay in these tables is `live_delay_s`, HSL's own deviation from schedule with the platform's sign (positive when late), taken from the message itself. A stream aggregate has to be computable from the stream alone; the platform's `measured_delay_s` against the timetable needs the timetable join that the sink does, and it is in `rt.stop_events` for analyses.
 
 ## Event time and processing time
 
@@ -101,8 +101,8 @@ One aggregator instance owns every partition. A route's vehicles are spread over
 ```sql
 SELECT route_id, direction_id, date_trunc('minute', tst, 'UTC'),
        count(DISTINCT (operator_id, vehicle_number)), count(*),
-       count(hfp_schedule_offset_s), avg(-hfp_schedule_offset_s),
-       percentile_cont(0.9) WITHIN GROUP (ORDER BY -hfp_schedule_offset_s)
+       count(live_delay_s), avg(live_delay_s),
+       percentile_cont(0.9) WITHIN GROUP (ORDER BY live_delay_s)
 FROM rt.vehicle_positions          -- minus the events dropped as too late
 GROUP BY 1, 2, 3
 ```

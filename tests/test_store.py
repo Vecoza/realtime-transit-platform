@@ -109,11 +109,11 @@ def test_arrival_after_midnight_gets_its_planned_time_and_own_delay(
     assert (arrival["trip_id"], arrival["stop_sequence"]) == ("2550_WEEKEND_2350", 3)
     assert arrival["planned_time"] == datetime(2026, 10, 24, 22, 10, tzinfo=UTC)
     assert arrival["planned_time"] == arrival["hfp_planned_time"]
-    assert arrival["delay_seconds"] == 120
-    assert arrival["hfp_schedule_offset_s"] == -115
+    assert arrival["measured_delay_s"] == 120
+    assert arrival["live_delay_s"] == 115
     assert departure["stop_sequence"] == 2
     assert departure["planned_time"] == datetime(2026, 10, 24, 21, 31, tzinfo=UTC)
-    assert departure["delay_seconds"] == 90
+    assert departure["measured_delay_s"] == 90
 
 
 @pytest.mark.parametrize(
@@ -128,7 +128,7 @@ def test_stop_events_on_a_matched_trip_without_its_stop_keep_a_reason(
     (row,) = stop_events(conn)
     assert row["match_status"] == status
     assert row["trip_id"] == "1001_WEEKDAY_0537"
-    assert row["planned_time"] is None and row["delay_seconds"] is None
+    assert row["planned_time"] is None and row["measured_delay_s"] is None
 
 
 def test_exact_copies_are_dropped_and_distinct_positions_in_one_second_are_kept(

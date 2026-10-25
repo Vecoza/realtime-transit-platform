@@ -1,3 +1,4 @@
+import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -78,3 +79,21 @@ def test_downgrade_to_base_and_upgrade_again_round_trips(
 
     command.upgrade(migration_config, "head")
     assert schema_objects(migrated) == (GTFS_TABLES | RT_TABLES, FUNCTIONS)
+
+
+def test_dashboard_role_reads_every_schema_it_needs_and_writes_nothing(
+    conn: psycopg.Connection,
+) -> None:
+    conn.execute("CREATE TABLE marts.published_later (id INTEGER)")
+    conn.execute("SET ROLE grafana_reader")
+    for table in ("rt.vehicle_positions", "meta.dbt_runs", "marts.published_later"):
+        conn.execute(f"SELECT count(*) FROM {table}")
+    for statement in (
+        "SELECT count(*) FROM gtfs.routes",
+        "DELETE FROM rt.vehicle_status",
+        "CREATE TABLE marts.not_allowed (id INTEGER)",
+    ):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege), conn.transaction():
+            conn.execute(statement)
+    conn.execute("RESET ROLE")
+    conn.rollback()

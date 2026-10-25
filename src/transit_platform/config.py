@@ -164,6 +164,21 @@ class AnalyticsSettings:
 
 
 @dataclass(frozen=True)
+class DashboardSettings:
+    """The read-only database role Grafana connects as."""
+
+    reader_user: str = "grafana_reader"
+    reader_password: str = ""
+
+    @classmethod
+    def from_env(cls) -> DashboardSettings:
+        password = os.getenv("GRAFANA_READER_PASSWORD", "")
+        if not password:
+            raise ValueError("GRAFANA_READER_PASSWORD is not set")
+        return cls(reader_password=password)
+
+
+@dataclass(frozen=True)
 class SourceSettings:
     mqtt_host: str
     mqtt_port: int

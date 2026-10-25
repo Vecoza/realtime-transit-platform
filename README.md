@@ -39,7 +39,9 @@ A second, independent consumer of the same stream computes per-minute statistics
 Recent data lives in daily-partitioned PostgreSQL tables. After seven days a partition is exported to Parquet, the file is checked row for row against the database, and only then is the partition dropped; every step is logged, and an interrupted run continues where it stopped. A day of vehicle positions takes seven times less space in Parquet, and a timetable version 88 times less. Old timetable versions are retired the same way. Analytical models in DuckDB read recent days from PostgreSQL and older days from Parquet, so the history stays complete while the operational database stays small: punctuality per line and hour at the timetable's timing points, delay per stop, bunching measured against the scheduled interval between two trips, and how much of the timetable the data covers. The models give identical results before and after a day is archived. A small scheduler container refreshes the timetable and archives daily and rebuilds the models hourly.
 
 **6. Monitoring dashboard**
-Grafana dashboards, provisioned as code, show live delays per line alongside the health of the pipeline itself: throughput, consumer lag and dead-letter counts.
+Three Grafana dashboards, provisioned entirely from files, read PostgreSQL through a read-only role. *Network now* puts every vehicle that reported in the last minute on a map and lists the lines and stops running latest, by the operator's live estimate, and the vehicles that went silent mid-trip. *Punctuality* shows the analytical marts per service day and hour, measured against the timetable. *Pipeline health* tracks throughput, consumer lag per group, dead letters, late events, partition sizes and the last archive and model runs. Two alert rules, also defined as code, fire on sustained consumer lag and when no data has been stored for five minutes. Every dashboard and alert query is tested against the read-only role.
+
+![Network now](docs/images/network_now.png)
 
 ## Architecture
 
@@ -77,9 +79,10 @@ realtime-transit-platform/
 ├── gtfs/                   Timetable download and loading
 ├── producer/               MQTT subscriber, recorder and replayer
 ├── processor/              Stream validation, enrichment and storage
-├── archive/                Partition export to Parquet
+├── archive/                Storage lifecycle: partitions and timetable versions to Parquet
+├── analytics/              Publishing the analytical marts to PostgreSQL
 ├── dbt/                    Analytical models and tests
-├── grafana/                Dashboards and data sources as code
+├── grafana/                Dashboards, data source and alert rules as code
 ├── docker/                 Scheduled jobs image, database initialization
 ├── docs/                   Architecture and design notes
 └── tests/                  Python tests
@@ -93,7 +96,7 @@ realtime-transit-platform/
 - [x] Stream processor: validation, deduplication, enrichment, dead-letter topic
 - [x] Event-time aggregation with late data handling
 - [x] Partitioned storage, Parquet archive and analytical models
-- [ ] Monitoring dashboards
+- [x] Monitoring dashboards
 - [ ] Documentation: architecture, design notes and results
 
 ## Possible improvements

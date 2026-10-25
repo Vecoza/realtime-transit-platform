@@ -546,7 +546,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 70
+                "value": 60
               }
             ]
           },
@@ -558,7 +558,19 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 100
+                "value": 95
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "timing_point"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
               }
             ]
           }

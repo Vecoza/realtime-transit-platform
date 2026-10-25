@@ -88,7 +88,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT count(*) AS stale\nFROM rt.vehicle_status\nWHERE status = 'stale'"
+          "rawSql": "SELECT count(*) AS stale\nFROM rt.vehicle_status\nWHERE status = 'stale' AND last_tst > now() - interval '1 hour'"
         }
       ],
       "fieldConfig": {
@@ -311,7 +311,7 @@
       "id": 6,
       "type": "table",
       "title": "Lines by delay, last 10 minutes (live delay, HSL estimate)",
-      "description": "Per line, from the per-minute event-time windows: HSL's own delay estimate carried in every message. Positive means late.",
+      "description": "Per line, from the per-minute event-time windows: HSL's own delay estimate carried in every message. Positive means late. A vehicle still signed on to an old journey (a parked train unit, for example) reports hours of delay and can lead the list on its own.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -544,7 +544,7 @@
       "id": 9,
       "type": "table",
       "title": "Stale vehicles: silent while their trip is planned to run",
-      "description": "Vehicles that stopped reporting for two minutes of event time while their trip is still planned to run. Vehicles past their trip's planned end are finished, not stale, and are not shown.",
+      "description": "Vehicles that stopped reporting for two minutes of event time while their trip is still planned to run, in the last hour. Vehicles past their trip's planned end are finished, not stale, and are not shown. A trip missing from the timetable has no planned end; such a vehicle stays stale and drops off after an hour.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -565,7 +565,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT v.operator_id || '/' || v.vehicle_number AS vehicle,\n       coalesce(r.route_short_name, v.route_id) AS line,\n       v.transport_mode AS mode,\n       v.start_time AS trip_start,\n       v.silent_since,\n       round(extract(epoch FROM now() - v.last_tst) / 60) AS minutes_silent,\n       v.planned_end\nFROM rt.vehicle_status AS v\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE v.status = 'stale'\nORDER BY v.silent_since"
+          "rawSql": "SELECT v.operator_id || '/' || v.vehicle_number AS vehicle,\n       coalesce(r.route_short_name, v.route_id) AS line,\n       v.transport_mode AS mode,\n       v.start_time AS trip_start,\n       v.silent_since,\n       round(extract(epoch FROM now() - v.last_tst) / 60) AS minutes_silent,\n       v.planned_end\nFROM rt.vehicle_status AS v\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE v.status = 'stale' AND v.last_tst > now() - interval '1 hour'\nORDER BY v.silent_since"
         }
       ],
       "fieldConfig": {

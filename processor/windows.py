@@ -11,7 +11,8 @@ Everything here is in memory and free of I/O, so the rules can be tested on thei
 - An event for a closed window is late: it is added and the window is emitted again as a
   correction. Once the watermark is the correction horizon past a window's end, the window
   is forgotten and events for it are dropped.
-- A vehicle on a trip that has sent nothing for ``stale_after`` of event time is stale.
+- A vehicle on a trip that has sent nothing for ``stale_after`` of event time is stale while
+  its trip is still planned to run, and finished once the trip's planned end has passed.
 """
 
 from __future__ import annotations
@@ -51,6 +52,15 @@ class StopWindow(NamedTuple):
 
 
 WindowKey = RouteWindow | StopWindow
+
+
+class Journey(NamedTuple):
+    """HFP's durable trip identity; ``start_offset_seconds`` counts like GTFS times."""
+
+    route_id: str
+    direction_id: int
+    oday: date
+    start_offset_seconds: int
 
 
 class Outcome(enum.StrEnum):
@@ -115,8 +125,9 @@ class VehicleState:
     start_time: clock_time | None
     lat: float | None
     lon: float | None
+    planned_end: datetime | None = None
     status: str = "active"
-    stale_since: datetime | None = None
+    silent_since: datetime | None = None
 
 
 @dataclass
@@ -125,6 +136,7 @@ class Emission:
     stops: list[StopMinute] = field(default_factory=list)
     vehicles: list[VehicleState] = field(default_factory=list)
     stale: int = 0
+    finished: int = 0
 
 
 def event_key(operator_id: int, vehicle_number: int, payload_hash: bytes) -> bytes:
@@ -134,6 +146,13 @@ def event_key(operator_id: int, vehicle_number: int, payload_hash: bytes) -> byt
 
 def vehicle_id(operator_id: int, vehicle_number: int) -> int:
     return operator_id * 100_000 + vehicle_number
+
+
+def journey_of(event: Event) -> Journey | None:
+    p = event.payload
+    if None in (p.route, event.direction_id, p.oday, event.start_offset_seconds):
+        return None
+    return Journey(p.route, event.direction_id, p.oday, event.start_offset_seconds)
 
 
 def minute_start(moment: datetime) -> datetime:
@@ -259,6 +278,15 @@ class WindowAggregator:
         self.vehicles: dict[int, VehicleState] = {}
         self.changed_vehicles: set[int] = set()
         self.late_events: list[LateEvent] = []
+        self.trip_ends: dict[Journey, datetime | None] = {}
+
+    def unknown_journeys(self, events: Iterable[Event]) -> set[Journey]:
+        """Journeys whose planned end has not been looked up yet."""
+        journeys = {journey_of(event) for event in events}
+        return {j for j in journeys if j is not None and j not in self.trip_ends}
+
+    def set_trip_ends(self, ends: dict[Journey, datetime | None]) -> None:
+        self.trip_ends.update(ends)
 
     def add(self, event: Event, partition: int) -> Outcome:
         self.watermark.observe(partition, event.tst, event.received_at)
@@ -306,13 +334,26 @@ class WindowAggregator:
             if watermark >= end + self.rules.correction_horizon:
                 del self.windows[window]
         for vid, vehicle in self.vehicles.items():
-            due = vehicle.last_tst + self.rules.stale_after
-            if vehicle.status == "active" and vehicle.route_id is not None and watermark >= due:
-                vehicle.status = "stale"
-                vehicle.stale_since = due
-                self.changed_vehicles.add(vid)
+            status = self._silent_status(vehicle, watermark)
+            if status == vehicle.status:
+                continue
+            if vehicle.status == "active":
+                vehicle.silent_since = vehicle.last_tst + self.rules.stale_after
+            vehicle.status = status
+            self.changed_vehicles.add(vid)
+            if status == "stale":
                 emission.stale += 1
+            else:
+                emission.finished += 1
         return self._vehicles_into(emission)
+
+    def _silent_status(self, vehicle: VehicleState, watermark: datetime) -> str:
+        """Stale while the trip is planned to run, finished after; unknown trips stay stale."""
+        if vehicle.route_id is None or watermark < vehicle.last_tst + self.rules.stale_after:
+            return vehicle.status
+        if vehicle.planned_end is not None and watermark >= vehicle.planned_end:
+            return "finished"
+        return "stale"
 
     def take_late_events(self) -> list[LateEvent]:
         late, self.late_events = self.late_events, []
@@ -367,13 +408,17 @@ class WindowAggregator:
             if p.lat is not None and p.long is not None:
                 vehicle.lat, vehicle.lon = p.lat, p.long
             vehicle.status = "active"
-            vehicle.stale_since = None
+            vehicle.silent_since = None
+        journey = journey_of(event)
+        vehicle.planned_end = None if journey is None else self.trip_ends.get(journey)
         self.changed_vehicles.add(vid)
 
     def _vehicles_into(self, emission: Emission) -> Emission:
         emission.vehicles = [self.vehicles[vid] for vid in sorted(self.changed_vehicles)]
         self.changed_vehicles.clear()
         for vehicle in emission.vehicles:
-            if vehicle.status == "stale":
+            if vehicle.status == "finished" or (
+                vehicle.status == "stale" and vehicle.planned_end is None
+            ):
                 del self.vehicles[vehicle_id(vehicle.operator_id, vehicle.vehicle_number)]
         return emission

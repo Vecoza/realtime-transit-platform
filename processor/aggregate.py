@@ -3,7 +3,8 @@
 A second consumer group on the raw topic, independent of the storage sink. Each batch:
 
 1. consume, drop copies within the batch, validate, and add the events to the windows;
-2. move the watermark: emit closed windows and corrections, mark stale vehicles;
+2. move the watermark: emit closed windows and corrections, mark silent vehicles stale or
+   finished (looking up each new journey's planned end in the timetable once);
 3. in one database transaction, upsert the window results as full values, log late events,
    update vehicle status, and store the consumed offsets, per-partition event time and
    watermark;
@@ -38,12 +39,13 @@ from confluent_kafka import (
 )
 from confluent_kafka.admin import AdminClient
 
-from processor.decode import Rejection, decode
+from processor.decode import Event, Rejection, decode
 from processor.sink import Hooks, parse_envelope
-from processor.store import copy_rows, ensure_partitions, upcoming_days
+from processor.store import JOURNEY_MATCH_CTE, copy_rows, ensure_partitions, upcoming_days
 from processor.windows import (
     MINUTE,
     Emission,
+    Journey,
     LateEvent,
     Outcome,
     RouteMinute,
@@ -87,7 +89,6 @@ STOP_COLUMNS = (
 VEHICLE_COLUMNS = (
     "operator_id",
     "vehicle_number",
-    "status",
     "last_tst",
     "last_received_at",
     "transport_mode",
@@ -97,7 +98,9 @@ VEHICLE_COLUMNS = (
     "start_time",
     "lat",
     "lon",
-    "stale_since",
+    "planned_end",
+    "status",
+    "silent_since",
 )
 LATE_COLUMNS = (
     "operator_id",
@@ -174,6 +177,25 @@ REBUILD_ARRIVALS_SQL = f"""
     WHERE event_type = 'arr' AND tst >= %s AND stop_id IS NOT NULL
       AND {DROPPED_FILTER.format(event_type="'arr'")}
 """
+TRIP_ENDS_SQL = (
+    "WITH "
+    + JOURNEY_MATCH_CTE.format(
+        staged="""(
+            SELECT * FROM unnest(%s::TEXT[], %s::SMALLINT[], %s::DATE[], %s::INTEGER[])
+                AS requested (route_id, direction_id, oday, start_offset_seconds)
+        ) AS requested"""
+    )
+    + """
+    SELECT m.route_id, m.direction_id, m.oday, m.start_offset_seconds,
+           gtfs.to_utc(m.oday, last_stop.arrival_offset_seconds)
+    FROM matches AS m
+    LEFT JOIN LATERAL (
+        SELECT max(st.arrival_offset_seconds) AS arrival_offset_seconds
+        FROM gtfs.stop_times AS st
+        WHERE st.feed_id = m.feed_id AND st.trip_id = m.trip_id
+    ) AS last_stop ON true
+"""
+)
 REBUILD_LATE_SQL = """
     SELECT window_start, route_id, direction_id, stop_id, operator_id, vehicle_number,
            payload_hash
@@ -275,6 +297,7 @@ class EventTimeAggregator:
         counts: Counter[str] = Counter()
         seen: set[tuple[str, str]] = set()
         touched: dict[int, int] = {}
+        events: list[tuple[Event, int]] = []
         for message in messages:
             touched[message.partition()] = message.offset() + 1
             envelope = parse_envelope(message)
@@ -288,7 +311,12 @@ class EventTimeAggregator:
             if isinstance(envelope, Rejection):
                 counts["invalid"] += 1
                 continue
-            counts[self.windows.add(envelope, message.partition())] += 1
+            events.append((envelope, message.partition()))
+        unknown = self.windows.unknown_journeys(event for event, _ in events)
+        if unknown:
+            self.windows.set_trip_ends(trip_ends(self.conn, unknown))
+        for event, partition in events:
+            counts[self.windows.add(event, partition)] += 1
         before = self.windows.watermark.value
         emission = self.windows.advance()
         late = self.windows.take_late_events()
@@ -318,7 +346,7 @@ class EventTimeAggregator:
         watermark = self.windows.watermark.value
         logger.info(
             "event=batch_committed messages=%d applied=%d late=%d dropped=%d duplicates=%d "
-            "emitted=%d corrected=%d stale=%d watermark=%s",
+            "emitted=%d corrected=%d stale=%d finished=%d watermark=%s",
             len(messages),
             counts[Outcome.APPLIED] + counts[Outcome.LATE],
             counts[Outcome.LATE],
@@ -327,6 +355,7 @@ class EventTimeAggregator:
             emitted,
             corrected,
             emission.stale,
+            emission.finished,
             watermark.isoformat() if watermark else None,
         )
         return BatchOutcome(
@@ -443,12 +472,12 @@ class EventTimeAggregator:
             """
             INSERT INTO meta.aggregator_metrics (
                 group_id, messages, invalid, copies, duplicates, applied, late, dropped,
-                no_window, windows_emitted, windows_corrected, vehicles_stale, open_windows,
-                retained_events, idle_partitions, watermark, max_event_time, poll_ms,
-                process_ms, db_ms
+                no_window, windows_emitted, windows_corrected, vehicles_stale,
+                vehicles_finished, open_windows, retained_events, idle_partitions, watermark,
+                max_event_time, poll_ms, process_ms, db_ms
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s)
+                    %s, %s, %s, %s)
             """,
             (
                 self.settings.group_id,
@@ -463,6 +492,7 @@ class EventTimeAggregator:
                 emitted,
                 corrected,
                 emission.stale,
+                emission.finished,
                 self.windows.open_windows(),
                 self.windows.retained_events(),
                 len(self.windows.watermark.idle()),
@@ -607,7 +637,10 @@ def rebuild(
             restored += 1
 
     columns = ", ".join(VEHICLE_COLUMNS)
-    for row in conn.execute(f"SELECT {columns} FROM rt.vehicle_status WHERE status = 'active'"):
+    for row in conn.execute(
+        f"SELECT {columns} FROM rt.vehicle_status"
+        " WHERE status = 'active' OR (status = 'stale' AND planned_end IS NOT NULL)"
+    ):
         windows.restore_vehicle(VehicleState(**dict(zip(VEHICLE_COLUMNS, row, strict=True))))
     logger.info(
         "event=windows_rebuilt windows=%d events=%d vehicles=%d since=%s duration_ms=%d",
@@ -617,6 +650,13 @@ def rebuild(
         since.isoformat(),
         _ms(started, time.perf_counter()),
     )
+
+
+def trip_ends(conn: psycopg.Connection, journeys: set[Journey]) -> dict[Journey, datetime | None]:
+    """Planned arrival at the last stop of each journey's trip; None when it has no trip."""
+    params = [[getattr(j, name) for j in journeys] for name in Journey._fields]
+    found = {Journey(*row[:4]): row[4] for row in conn.execute(TRIP_ENDS_SQL, params)}
+    return {journey: found.get(journey) for journey in journeys}
 
 
 def add_stored_event(

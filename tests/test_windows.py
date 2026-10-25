@@ -10,6 +10,7 @@ from processor.windows import (
     Watermark,
     WindowAggregator,
     WindowRules,
+    journey_of,
     percentile_cont,
 )
 from tests.hfp_events import hfp_envelope
@@ -187,11 +188,51 @@ def test_vehicle_silent_for_two_minutes_of_event_time_becomes_stale_and_returns(
 
     stale = [v for v in emission.vehicles if v.status == "stale"]
     assert emission.stale == 1
-    assert [(v.vehicle_number, v.stale_since) for v in stale] == [(649, T0 + timedelta(minutes=2))]
+    assert [(v.vehicle_number, v.silent_since) for v in stale] == [(649, T0 + timedelta(minutes=2))]
 
     windows.add(event(130), 0)
     back = [v for v in windows.advance().vehicles if v.vehicle_number == 649]
-    assert [(v.status, v.stale_since) for v in back] == [("active", None)]
+    assert [(v.status, v.silent_since) for v in back] == [("active", None)]
+
+
+def test_silent_vehicle_is_stale_until_its_trip_is_planned_to_end_then_finished() -> None:
+    windows, _ = aggregator()
+    journey = journey_of(event(0))
+    assert journey is not None and windows.unknown_journeys([event(0)]) == {journey}
+    windows.set_trip_ends({journey: T0 + timedelta(minutes=5)})
+    windows.add(event(0), 0)
+
+    windows.add(event(125, vehicle="00650"), 0)
+    stale = windows.advance()
+    assert (stale.stale, stale.finished) == (1, 0)
+    assert [(v.status, v.silent_since) for v in stale.vehicles if v.vehicle_number == 649] == [
+        ("stale", T0 + timedelta(minutes=2))
+    ]
+
+    windows.add(event(240, vehicle="00650"), 0)
+    assert windows.advance().stale == 0
+
+    windows.add(event(300, vehicle="00650"), 0)
+    finished = windows.advance()
+    assert (finished.stale, finished.finished) == (0, 1)
+    assert [(v.status, v.silent_since) for v in finished.vehicles if v.vehicle_number == 649] == [
+        ("finished", T0 + timedelta(minutes=2))
+    ]
+    assert 649 not in {v.vehicle_number for v in windows.vehicles.values()}
+
+
+def test_vehicle_silent_after_its_trip_is_planned_to_end_is_finished() -> None:
+    windows, _ = aggregator()
+    journey = journey_of(event(0))
+    assert journey is not None
+    windows.set_trip_ends({journey: T0 + timedelta(minutes=1)})
+    windows.add(event(0), 0)
+
+    windows.add(event(125, vehicle="00650"), 0)
+    emission = windows.advance()
+
+    assert (emission.stale, emission.finished) == (0, 1)
+    assert [v.status for v in emission.vehicles if v.vehicle_number == 649] == ["finished"]
 
 
 @pytest.mark.parametrize(

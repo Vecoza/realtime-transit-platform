@@ -6,8 +6,10 @@ import pytest
 
 from gtfs.download import FeedFile
 from gtfs.loader import load_feed
+from processor.aggregate import trip_ends
 from processor.decode import Event, decode
 from processor.store import ensure_partitions, event_days, upcoming_days, write_events
+from processor.windows import Journey
 from producer.hfp import Envelope
 from tests.conftest import GTFS_FIXTURE, zip_feed
 from tests.hfp_events import hfp_envelope
@@ -244,3 +246,14 @@ def test_partitions_are_created_ahead_and_creation_is_idempotent(
         "route_minute_stats_20300131",
     ]
     assert len(names) == 4 * 8
+
+
+def test_trip_end_is_the_planned_arrival_at_the_last_stop(
+    conn: psycopg.Connection, feed_id: int
+) -> None:
+    known = Journey("1001", 0, date(2026, 10, 20), 5 * 3600 + 37 * 60)
+    unknown = Journey("1001", 0, date(2026, 10, 20), 4 * 3600)
+
+    ends = trip_ends(conn, {known, unknown})
+
+    assert ends == {known: datetime(2026, 10, 20, 2, 40, tzinfo=UTC), unknown: None}

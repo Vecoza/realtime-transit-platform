@@ -6,7 +6,7 @@ The aggregator is the consumer group `aggregator` on `hfp.raw`. It reads the sam
 |---|---|---|
 | `rt.route_minute_stats` | route, direction, minute | vehicles, positions, live delay samples, average and p90 live delay |
 | `rt.stop_minute_stats` | stop, minute | arrivals, live delay samples, average live delay |
-| `rt.vehicle_status` | vehicle | last event, position and journey; `active` or `stale` |
+| `rt.vehicle_status` | vehicle | last event, position, journey and its planned end; `active`, `stale` or `finished` |
 | `rt.late_events` | late event | the window it belonged to, the watermark when it arrived, `corrected` or `dropped` |
 
 Every window row also carries `late_events`, `revision`, `first_emitted_at` and `emitted_at`.
@@ -86,9 +86,14 @@ The aggregator's state is the windows in memory, and it must survive a `kill -9`
 
 ## Stale vehicles
 
-A vehicle on a trip that has sent nothing for two minutes is marked `stale`. This is an event-time timer: the vehicle becomes stale when the watermark passes its last `tst` plus two minutes, so a backlog in the stream cannot make every vehicle look stale. `stale_since` is the event time at which the two minutes ran out. Any newer message makes the vehicle `active` again. The update only applies when its `last_tst` is not older than the stored one, so a late event cannot move a vehicle back in time.
+A vehicle on a trip that has sent nothing for two minutes has gone silent. This is an event-time timer: it runs out when the watermark passes the vehicle's last `tst` plus two minutes, so a backlog in the stream cannot make every vehicle look silent. `silent_since` is the event time at which the two minutes ran out. Any newer message makes the vehicle `active` again. The update only applies when its `last_tst` is not older than the stored one, so a late event cannot move a vehicle back in time.
 
-A vehicle that ends its service also stops sending on the journey topics and ends up stale. HSL reports that phase on `deadrun` topics, which the platform does not subscribe to.
+Going silent means two different things. A vehicle that stops sending in the middle of its trip is a problem worth showing; a vehicle that has reached the end of its trip has simply left the journey topics (HSL reports that phase on `deadrun` topics, which the platform does not subscribe to). The aggregator tells them apart by the trip's **planned end**, the scheduled arrival at its last stop:
+
+- **`stale`**: silent while the planned end is still ahead of the watermark. The vehicle should be running and is not reporting.
+- **`finished`**: silent after the planned end, or still silent when the watermark reaches it. The vehicle is then forgotten.
+
+The planned end is looked up in the timetable once per journey, the first time a batch contains it, with the same matching as the sink (route, direction, operating day and start in the feed valid on that day), and kept on the vehicle row. A journey without a timetable trip has no planned end; its vehicle is marked stale and forgotten, as it cannot be told apart. After a restart, active vehicles and stale vehicles with a planned end are read back, so a stale vehicle still turns finished.
 
 ## Scaling
 

@@ -48,6 +48,7 @@ jobs:
         run: |
           pip install -c constraints.txt -e ".[dev]"
           pip check
+          make duckdb-extensions
 
       - name: Lint
         run: ruff check .

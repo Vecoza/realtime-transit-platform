@@ -53,6 +53,30 @@ DuckDB attaches PostgreSQL read-only and reads the Parquet archive directly:
 
 Two tests check the data across systems: the planned time the sink stored on each event equals the departure in the exported timetable, and every archived day still holds exactly the rows the archive log verified (the reconciliation of PostgreSQL, Parquet and what was stored).
 
+## Plausibility: measured against live delay
+
+The marts use the platform's `measured_delay_s`. HSL's own estimate, `live_delay_s`, comes with every event and is computed independently, so the two should tell the same story for the same departures. For the five routes and five stops with the highest average delay on the Saturday sample (at least 15 departures each):
+
+| Route | Departures at timing points | Measured | Live | Median difference | Correlation | Same "late" verdict |
+|---|---:|---:|---:|---:|---:|---:|
+| 30 | 27 | 243 s | 220 s | +25 s | 0.997 | 96% |
+| 114 | 15 | 228 s | 206 s | +23 s | 0.999 | 100% |
+| 52 | 22 | 213 s | 203 s | +12 s | 0.990 | 100% |
+| 200 | 20 | 213 s | 186 s | +29 s | 0.997 | 100% |
+| 57 | 24 | 198 s | 186 s | +16 s | 0.992 | 100% |
+
+| Stop | Departures | Measured | Live | Correlation | Same "late" verdict |
+|---|---:|---:|---:|---:|---:|
+| Apollonkatu | 16 | 409 s | 378 s | 0.998 | 100% |
+| Sörnäinen (M) | 27 | 306 s | 284 s | 0.999 | 100% |
+| Haapaniemi | 25 | 281 s | 257 s | 0.999 | 100% |
+| Hakaniemi | 18 | 281 s | 156 s | 0.992 | 67% |
+| Ruskeasuon varikko | 20 | 226 s | 211 s | 0.999 | 100% |
+
+They agree. Measured delay is higher by 12–29 seconds (median), because `dep` is sent after the vehicle leaves the stop area, later than the moment HSL's estimate refers to (see [design_processing.md](design_processing.md#two-delays-side-by-side)). The "late" verdict (180 s or more) is the same for 99.6% of all 14,009 departures.
+
+Hakaniemi is the exception, and the reason is the timetable, not the measurement. It is not a timing point, and at every departure there the GTFS time is 60 to 120 seconds earlier than HSL's own planned time (`ttdep`); measured against HSL's time, the delay matches the live value. This is the interpolation difference between timing points described in the processing notes. `mart_stop_punctuality` therefore flags timing points, and a stop that is not one can show up to two minutes more delay than HSL's own figures.
+
 ## Same results before and after archiving
 
 A test stores real messages of two Saturday routes (`tests/fixtures/hfp_saturday_routes.jsonl` with the matching part of the timetable), builds the models, then archives the day, loads a newer timetable version and retires the one the events were matched to, and builds again. All four marts are identical row for row, and the archived rows equal the stored ones.

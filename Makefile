@@ -1,5 +1,5 @@
 .PHONY: help install duckdb-extensions up down logs psql topics check migrate migrate-down \
-	migrate-status gtfs-load produce record replay process aggregate \
+	migrate-status gtfs-load produce record replay process aggregate archive \
 	lint format test test-unit test-db clean
 
 help:  ## Show available commands
@@ -57,6 +57,9 @@ process:  ## Store the raw topic in PostgreSQL (consumer group sink)
 
 aggregate:  ## Per-minute event-time statistics from the raw topic (consumer group aggregator)
 	python -m processor.aggregate
+
+archive:  ## Move old day partitions and replaced timetable versions to Parquet
+	python -m archive.lifecycle
 
 lint:  ## Run linter
 	ruff check .

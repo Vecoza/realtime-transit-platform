@@ -11,7 +11,7 @@ from processor.decode import Event, decode
 from processor.store import ensure_partitions, event_days, upcoming_days, write_events
 from processor.windows import Journey
 from producer.hfp import Envelope
-from tests.conftest import GTFS_FIXTURE, zip_feed
+from tests.conftest import GTFS_FIXTURE, load_build, zip_feed
 from tests.hfp_events import hfp_envelope
 
 pytestmark = pytest.mark.db
@@ -161,15 +161,6 @@ def test_rows_land_in_the_partition_of_their_utc_event_day(
     assert partition == "rt.stop_events_20261024"
     assert oday.isoformat() == "2026-10-24"
     assert conn.execute("SELECT count(*) FROM rt.stop_events_default").fetchone() == (0,)
-
-
-def load_build(conn: psycopg.Connection, feed_dir: Path, tmp_path: Path, built: str) -> int:
-    info = feed_dir / "feed_info.txt"
-    lines = info.read_text().splitlines()
-    lines[1] = lines[1].rsplit(",", 1)[0] + f",{built} 04:11:14"
-    info.write_text("\n".join(lines) + "\n")
-    feed = FeedFile.from_path(zip_feed(feed_dir, tmp_path / f"{built}.zip"))
-    return load_feed(conn, feed).feed_id
 
 
 def test_feed_built_before_the_operating_day_is_used(

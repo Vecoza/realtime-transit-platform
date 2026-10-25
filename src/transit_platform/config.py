@@ -117,6 +117,19 @@ class AggregatorSettings:
 
 
 @dataclass(frozen=True)
+class ArchiveSettings:
+    directory: Path = Path("data/archive")
+    keep_days: int = 7
+
+    @classmethod
+    def from_env(cls) -> ArchiveSettings:
+        return cls(
+            directory=Path(os.getenv("ARCHIVE_DIR", "data/archive")),
+            keep_days=int(os.getenv("ARCHIVE_KEEP_DAYS", "7")),
+        )
+
+
+@dataclass(frozen=True)
 class SourceSettings:
     mqtt_host: str
     mqtt_port: int

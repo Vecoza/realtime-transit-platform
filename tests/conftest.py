@@ -16,6 +16,8 @@ from alembic.config import Config
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 
+from gtfs.download import FeedFile
+from gtfs.loader import load_feed
 from transit_platform.config import DatabaseSettings, StreamSettings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -94,7 +96,8 @@ def reset_data(conn: psycopg.Connection) -> None:
         conn.execute("""
             TRUNCATE rt.vehicle_positions, rt.stop_events, meta.consumer_metrics,
                 rt.route_minute_stats, rt.stop_minute_stats, rt.late_events, rt.vehicle_status,
-                meta.aggregator_progress, meta.aggregator_watermarks, meta.aggregator_metrics
+                meta.aggregator_progress, meta.aggregator_watermarks, meta.aggregator_metrics,
+                meta.archive_runs
         """)
 
 
@@ -130,3 +133,13 @@ def stream_settings() -> StreamSettings:
             pytest.fail(message)
         pytest.skip(f"{message}; start it with `make up` to run stream tests")
     return settings
+
+
+def load_build(conn: psycopg.Connection, feed_dir: Path, tmp_path: Path, built: str) -> int:
+    """Load the GTFS fixture as a feed that HSL built on ``built`` (YYYY-MM-DD)."""
+    info = feed_dir / "feed_info.txt"
+    lines = info.read_text().splitlines()
+    lines[1] = lines[1].rsplit(",", 1)[0] + f",{built} 04:11:14"
+    info.write_text("\n".join(lines) + "\n")
+    feed = FeedFile.from_path(zip_feed(feed_dir, tmp_path / f"{built}.zip"))
+    return load_feed(conn, feed).feed_id

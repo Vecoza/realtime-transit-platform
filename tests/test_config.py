@@ -1,5 +1,8 @@
+import pytest
+
 from processor.sink import consumer_config
 from transit_platform.config import (
+    ArchiveSettings,
     DatabaseSettings,
     ProcessorSettings,
     SourceSettings,
@@ -52,3 +55,8 @@ def test_sink_is_a_static_member_named_after_the_host_unless_set(monkeypatch):
     config = consumer_config(StreamSettings.from_env(), settings)
     assert config["group.instance.id"] == "sink-1"
     assert config["enable.auto.commit"] is False
+
+
+def test_retention_shorter_than_the_sink_accepts_events_is_refused() -> None:
+    with pytest.raises(ValueError, match="positions_days"):
+        ArchiveSettings(positions_days=1)

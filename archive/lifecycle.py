@@ -10,8 +10,9 @@ Every object goes through the same steps, each recorded in meta.archive_runs:
 A step that is already recorded for the same row count is not repeated, so the job can be
 stopped at any point and run again. Nothing is dropped without a verified export.
 
-Real-time partitions are archived once they are older than ``keep_days``. They no longer
-change by then: the sink rejects events more than a day old. Timetable versions are
+Each real-time table has its own retention, by who reads it in PostgreSQL: positions feed the
+live map and are kept two days, stop events and minute statistics a week. Partitions no
+longer change by then: the sink rejects events more than a day old. Timetable versions are
 exported as soon as they are loaded, because the analytical models read the timetable from
 Parquet, and dropped once they are no longer needed for matching (docs/design_gtfs.md).
 """
@@ -106,13 +107,13 @@ class Lifecycle:
         self.conn.execute(
             "SELECT rt.ensure_day_partitions(%s, %s)", (today, today + timedelta(FUTURE_DAYS))
         )
-        cutoff = today - timedelta(days=self.settings.keep_days)
         for table in DAY_TABLES:
+            cutoff = today - timedelta(days=self.settings.keep_days(table))
             for day in self.day_partitions(table, before=cutoff):
                 self.archive_day(table, day)
         for feed_id in self.feed_ids():
             self.export_feed(feed_id)
-        for feed_id in self.droppable_feeds(cutoff):
+        for feed_id in self.droppable_feeds(today - timedelta(days=self.settings.stop_events_days)):
             self.drop_feed(feed_id)
 
     def day_partitions(self, table: str, before: date) -> list[date]:

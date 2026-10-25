@@ -54,7 +54,7 @@ def lifecycle(migrated: DatabaseSettings, tmp_path: Path) -> Iterator[Lifecycle]
         psycopg.connect(migrated.conninfo, autocommit=True) as conn,
         connect_duckdb(migrated) as duck,
     ):
-        yield Lifecycle(conn, duck, ArchiveSettings(tmp_path / "archive", keep_days=7))
+        yield Lifecycle(conn, duck, ArchiveSettings(tmp_path / "archive"))
 
 
 def store_saturday(conn: psycopg.Connection) -> int:

@@ -3,7 +3,7 @@
 # Timetable refresh, then export the new version to Parquet for the analytical models
 30 3 * * * python -m gtfs.load && python -m archive.lifecycle
 
-# Storage lifecycle: archive day partitions older than ARCHIVE_KEEP_DAYS, retire old versions
+# Storage lifecycle: archive day partitions past their retention, retire old versions
 40 0 * * * python -m archive.lifecycle
 
 # Analytical models and their tests

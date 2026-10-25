@@ -116,16 +116,39 @@ class AggregatorSettings:
         )
 
 
+# The sink accepts events up to a day old, so a day's partition changes until two days later.
+MIN_KEEP_DAYS = 2
+
+
 @dataclass(frozen=True)
 class ArchiveSettings:
+    """Days each kind of data stays in PostgreSQL before it moves to Parquet."""
+
     directory: Path = Path("data/archive")
-    keep_days: int = 7
+    positions_days: int = 2
+    stop_events_days: int = 7
+    minute_stats_days: int = 7
+
+    def __post_init__(self) -> None:
+        for name in ("positions_days", "stop_events_days", "minute_stats_days"):
+            if getattr(self, name) < MIN_KEEP_DAYS:
+                raise ValueError(f"{name} must be at least {MIN_KEEP_DAYS}")
+
+    def keep_days(self, table: str) -> int:
+        return {
+            "vehicle_positions": self.positions_days,
+            "stop_events": self.stop_events_days,
+            "route_minute_stats": self.minute_stats_days,
+            "stop_minute_stats": self.minute_stats_days,
+        }[table]
 
     @classmethod
     def from_env(cls) -> ArchiveSettings:
         return cls(
             directory=Path(os.getenv("ARCHIVE_DIR", "data/archive")),
-            keep_days=int(os.getenv("ARCHIVE_KEEP_DAYS", "7")),
+            positions_days=int(os.getenv("ARCHIVE_KEEP_DAYS_POSITIONS", "2")),
+            stop_events_days=int(os.getenv("ARCHIVE_KEEP_DAYS_STOP_EVENTS", "7")),
+            minute_stats_days=int(os.getenv("ARCHIVE_KEEP_DAYS_MINUTE_STATS", "7")),
         )
 
 

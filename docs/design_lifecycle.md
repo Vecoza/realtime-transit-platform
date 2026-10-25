@@ -15,7 +15,17 @@ One directory per table and UTC day, named like a Hive partition, so DuckDB read
 
 ## What moves, and when
 
-Every daily partition of `rt.vehicle_positions`, `rt.stop_events`, `rt.route_minute_stats` and `rt.stop_minute_stats` whose day is more than `ARCHIVE_KEEP_DAYS` (7) days old. By then the partition no longer changes: the sink rejects events more than a day older than their receipt, and the aggregator's correction horizon is ten minutes. The same run creates the partitions for the next seven days, so the sink never has to.
+Each table stays in PostgreSQL as long as something reads it there, and no longer:
+
+| Table | Days in PostgreSQL | Read there by | Setting |
+|---|---:|---|---|
+| `rt.vehicle_positions` | 2 | the live map and the last minutes of the network | `ARCHIVE_KEEP_DAYS_POSITIONS` |
+| `rt.stop_events` | 7 | the analytical models (recent days), worst stops on the dashboards | `ARCHIVE_KEEP_DAYS_STOP_EVENTS` |
+| `rt.route_minute_stats`, `rt.stop_minute_stats` | 7 | the dashboards' line and stop panels | `ARCHIVE_KEEP_DAYS_MINUTE_STATS` |
+
+A day's partition moves once the day is more than that many days old. None can be set below two: the sink accepts events up to a day older than their receipt, so a day's partition can still receive rows until two days later; the aggregator's correction horizon is ten minutes. The same run creates the partitions for the next seven days, so the sink never has to.
+
+Positions are 96% of the rows, so their retention decides the size of the database. A row of `rt.vehicle_positions` takes 293 bytes: a 224-byte tuple (234 bytes of heap per row with page overhead) and 59 bytes of primary-key index, measured on the 1.4 million Saturday rows after loading them into a fresh table. The raw message is not stored, only a 16-byte hash of it for deduplication; every field the platform uses has its own typed column. The widest columns are `trip_id` (24 bytes, the timetable's text key, repeated on every row of a trip) and the payload hash (17). At the Saturday-afternoon rate an hour of positions is 0.8 GB in PostgreSQL, so a day costs up to 20 GB (nights are quieter); keeping two days instead of seven saves up to about 100 GB.
 
 ## Steps
 

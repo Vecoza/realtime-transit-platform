@@ -36,7 +36,7 @@ def duck(migrated: DatabaseSettings) -> Iterator[duckdb.DuckDBPyConnection]:
 def lifecycle(
     autocommit: psycopg.Connection, duck: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> Lifecycle:
-    return Lifecycle(autocommit, duck, ArchiveSettings(tmp_path / "archive", keep_days=7))
+    return Lifecycle(autocommit, duck, ArchiveSettings(tmp_path / "archive"))
 
 
 def store_days(conn: psycopg.Connection) -> None:
@@ -67,7 +67,7 @@ def partition_exists(conn: psycopg.Connection, name: str) -> bool:
     return conn.execute("SELECT to_regclass(%s)", (name,)).fetchone()[0] is not None
 
 
-def test_old_days_move_to_parquet_and_recent_days_stay(
+def test_each_table_keeps_its_own_number_of_days(
     conn: psycopg.Connection, lifecycle: Lifecycle, duck: duckdb.DuckDBPyConnection
 ) -> None:
     store_days(conn)
@@ -81,7 +81,8 @@ def test_old_days_move_to_parquet_and_recent_days_stay(
 
     assert not partition_exists(lifecycle.conn, "rt.vehicle_positions_20261020")
     assert not partition_exists(lifecycle.conn, "rt.stop_events_20261020")
-    assert partition_exists(lifecycle.conn, "rt.vehicle_positions_20261027")
+    assert not partition_exists(lifecycle.conn, "rt.vehicle_positions_20261027")
+    assert partition_exists(lifecycle.conn, "rt.stop_events_20261027")
     assert partition_exists(lifecycle.conn, "rt.vehicle_positions_20261106")
     path = lifecycle.settings.directory / "vehicle_positions" / "utc_day=2026-10-20"
     archived = duck.execute(
@@ -98,7 +99,8 @@ def test_old_days_move_to_parquet_and_recent_days_stay(
         "detached",
         "dropped",
     ]
-    assert steps(lifecycle.conn, "rt.vehicle_positions", "2026-10-27") == []
+    assert steps(lifecycle.conn, "rt.vehicle_positions", "2026-10-27")[-1] == "dropped"
+    assert steps(lifecycle.conn, "rt.stop_events", "2026-10-27") == []
 
 
 def test_a_second_run_changes_nothing(conn: psycopg.Connection, lifecycle: Lifecycle) -> None:

@@ -401,7 +401,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT lpad(hour_local::text, 2, '0') || ':00' AS hour,\n       round((sum(on_time)::float / nullif(sum(departures), 0) * 100)::numeric, 1) AS on_time_pct\nFROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY hour_local\nORDER BY hour_local"
+          "rawSql": "SELECT hour_local::text AS hour,\n       round((sum(on_time)::float / nullif(sum(departures), 0) * 100)::numeric, 1) AS on_time_pct\nFROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY hour_local\nORDER BY hour_local"
         }
       ],
       "fieldConfig": {
@@ -423,6 +423,26 @@
                 "value": "on time"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hour"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "hour"
+              },
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "hour, Helsinki time"
+              }
+            ]
           }
         ]
       },
@@ -441,7 +461,7 @@
       "id": 7,
       "type": "trend",
       "title": "Average delay by hour (measured delay vs timetable)",
-      "description": "Average departure delay at timing points per local hour (0 to 23), positive when late. Hours without departures are left empty.",
+      "description": "Average departure delay at timing points per local hour, positive when late. Hours without departures are left empty.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -506,6 +526,10 @@
               {
                 "id": "decimals",
                 "value": 0
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "hour, Helsinki time"
               }
             ]
           }

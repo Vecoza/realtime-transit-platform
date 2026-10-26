@@ -8,7 +8,7 @@ from pathlib import Path
 
 import psycopg
 
-from gtfs.download import FeedFile, download_feed
+from gtfs.download import FeedFile, download_feed, zip_directory
 from gtfs.loader import current_feed_id, load_feed
 from transit_platform.config import DatabaseSettings, GtfsSettings
 from transit_platform.logs import configure_logging
@@ -16,7 +16,9 @@ from transit_platform.logs import configure_logging
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--file", type=Path, help="load this local zip instead of downloading")
+    parser.add_argument(
+        "--file", type=Path, help="load this local zip, or unpacked feed directory, instead"
+    )
     parser.add_argument(
         "--if-missing",
         action="store_true",
@@ -36,11 +38,13 @@ def main(argv: list[str] | None = None) -> int:
         if feed_id is not None:
             print(f"current: feed_id={feed_id}, nothing to load")
             return 0
-    feed = (
-        FeedFile.from_path(args.file)
-        if args.file
-        else download_feed(settings.url, settings.download_dir)
-    )
+    if args.file is None:
+        feed = download_feed(settings.url, settings.download_dir)
+    elif args.file.is_dir():
+        zipped = settings.download_dir / f"{args.file.name}.zip"
+        feed = FeedFile.from_path(zip_directory(args.file, zipped))
+    else:
+        feed = FeedFile.from_path(args.file)
     with psycopg.connect(database.conninfo) as conn:
         result = load_feed(conn, feed)
     print(f"{result.status}: feed_id={result.feed_id} sha256={feed.sha256[:12]}")

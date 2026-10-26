@@ -2,12 +2,13 @@ import hashlib
 import io
 import ssl
 import urllib.error
+import zipfile
 from pathlib import Path
 
 import pytest
 
 from gtfs import download
-from gtfs.download import FeedFile, download_feed
+from gtfs.download import FeedFile, download_feed, zip_directory
 
 PAYLOAD = b"PK fake zip content" * 1000
 
@@ -91,3 +92,17 @@ def test_local_feed_file_has_checksum_and_file_url(tmp_path: Path) -> None:
 
     assert feed.sha256 == hashlib.sha256(PAYLOAD).hexdigest()
     assert feed.source_url == path.resolve().as_uri()
+
+
+def test_an_unpacked_feed_is_zipped_with_its_text_files_only(tmp_path: Path) -> None:
+    feed = tmp_path / "feed"
+    feed.mkdir()
+    (feed / "stops.txt").write_text("stop_id\n1\n")
+    (feed / "routes.txt").write_text("route_id\n1001\n")
+    (feed / "notes.md").write_text("not part of the feed")
+
+    archive = zip_directory(feed, tmp_path / "out" / "feed.zip")
+
+    with zipfile.ZipFile(archive) as zipped:
+        assert zipped.namelist() == ["routes.txt", "stops.txt"]
+        assert zipped.read("stops.txt") == b"stop_id\n1\n"

@@ -8,6 +8,7 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -36,6 +37,15 @@ class FeedFile:
         digest, size = sha256_of(path)
         modified = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
         return cls(path, path.resolve().as_uri(), digest, size, modified)
+
+
+def zip_directory(source_dir: Path, target: Path) -> Path:
+    """Pack the ``*.txt`` files of an unpacked GTFS feed into a zip, as HSL publishes it."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(source_dir.glob("*.txt")):
+            archive.write(path, path.name)
+    return target
 
 
 def sha256_of(path: Path) -> tuple[str, int]:

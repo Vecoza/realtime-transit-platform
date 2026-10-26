@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import zipfile
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -16,7 +15,7 @@ from alembic.config import Config
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 
-from gtfs.download import FeedFile
+from gtfs.download import FeedFile, zip_directory
 from gtfs.loader import load_feed
 from transit_platform.config import DatabaseSettings, StreamSettings
 
@@ -115,10 +114,7 @@ def feed_dir(tmp_path: Path) -> Path:
 
 
 def zip_feed(source_dir: Path, target: Path) -> Path:
-    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(source_dir.glob("*.txt")):
-            archive.write(path, path.name)
-    return target
+    return zip_directory(source_dir, target)
 
 
 @pytest.fixture(scope="session")

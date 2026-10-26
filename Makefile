@@ -1,4 +1,4 @@
-.PHONY: help install duckdb-extensions up platform down logs psql topics check migrate migrate-down \
+.PHONY: help install duckdb-extensions up platform demo down logs psql topics check migrate migrate-down \
 	migrate-status gtfs-load produce record replay process aggregate archive marts scheduler \
 	reader-role grafana lint format test test-unit test-db clean
 
@@ -21,6 +21,28 @@ up:  ## Start PostgreSQL and Redpanda (for running the services on the host)
 
 platform:  ## Build and start the whole platform in containers, as on a server
 	docker compose up -d --build
+
+# The demo runs in containers on the committed fixtures: no live feed, no download.
+# FULL=1 loads HSL's current timetable instead and replays the recordings in RECORDING.
+DEMO_FIXTURES := $(CURDIR)/tests/fixtures
+RECORDING ?= data/recordings
+DEMO_TIMETABLE = $(if $(FULL),,--file /app/fixtures/gtfs_saturday_routes)
+DEMO_REPLAY = $(if $(FULL),$(abspath $(RECORDING)),$(DEMO_FIXTURES)/hfp_saturday_routes.jsonl)
+
+demo:  ## Run the platform offline on the recorded fixtures (FULL=1: real timetable and RECORDING)
+	@test -f .env || { cp .env.example .env; echo "created .env from .env.example"; }
+	docker compose build init
+	docker compose up -d --wait postgres redpanda
+	docker compose run --rm --no-deps -v "$(DEMO_FIXTURES):/app/fixtures:ro" init sh -c \
+		"alembic upgrade head && python -m transit_platform.reader_role \
+		&& python -m gtfs.load $(DEMO_TIMETABLE) && python -m archive.lifecycle"
+	docker compose up -d sink aggregator grafana
+	docker compose run --rm --no-deps -v "$(DEMO_REPLAY):/app/replay:ro" producer \
+		python -m producer.replay /app/replay --speed 0
+	docker compose run --rm --no-deps sink python -m processor.wait
+	docker compose run --rm --no-deps scheduler sh -c \
+		"dbt build --project-dir dbt --profiles-dir dbt; python -m analytics.publish"
+	@echo "Grafana: http://localhost:$(or $(GRAFANA_PORT),3000)/d/punctuality$(if $(FULL),,?var-day=2026-10-24)"
 
 down:  ## Stop containers
 	docker compose down

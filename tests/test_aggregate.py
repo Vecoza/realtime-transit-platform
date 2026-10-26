@@ -42,6 +42,7 @@ ROUTE_BATCH_SQL = """
            count(DISTINCT (operator_id, vehicle_number)), count(*),
            count(live_delay_s),
            avg(live_delay_s)::DOUBLE PRECISION,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY live_delay_s),
            percentile_cont(0.9) WITHIN GROUP (ORDER BY live_delay_s)
     FROM rt.vehicle_positions AS e
     WHERE route_id IS NOT NULL AND direction_id IS NOT NULL
@@ -56,7 +57,9 @@ ROUTE_BATCH_SQL = """
 STOP_BATCH_SQL = """
     SELECT stop_id, date_trunc('minute', tst, 'UTC') AS window_start,
            count(*), count(live_delay_s),
-           avg(live_delay_s)::DOUBLE PRECISION
+           avg(live_delay_s)::DOUBLE PRECISION,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY live_delay_s),
+           percentile_cont(0.9) WITHIN GROUP (ORDER BY live_delay_s)
     FROM rt.stop_events AS e
     WHERE event_type = 'arr' AND stop_id IS NOT NULL
       AND NOT EXISTS (
@@ -69,11 +72,12 @@ STOP_BATCH_SQL = """
 """
 ROUTE_STREAM_SQL = """
     SELECT route_id, direction_id, window_start, vehicles, positions, live_delay_samples,
-           avg_live_delay_s, p90_live_delay_s
+           avg_live_delay_s, p50_live_delay_s, p90_live_delay_s
     FROM rt.route_minute_stats
 """
 STOP_STREAM_SQL = """
-    SELECT stop_id, window_start, arrivals, live_delay_samples, avg_live_delay_s
+    SELECT stop_id, window_start, arrivals, live_delay_samples, avg_live_delay_s,
+           p50_live_delay_s, p90_live_delay_s
     FROM rt.stop_minute_stats
 """
 

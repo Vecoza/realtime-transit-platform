@@ -80,6 +80,7 @@ class RouteMinute:
     positions: int
     live_delay_samples: int
     avg_live_delay_s: float | None
+    p50_live_delay_s: float | None
     p90_live_delay_s: float | None
     late_events: int
 
@@ -91,6 +92,8 @@ class StopMinute:
     arrivals: int
     live_delay_samples: int
     avg_live_delay_s: float | None
+    p50_live_delay_s: float | None
+    p90_live_delay_s: float | None
     late_events: int
 
 
@@ -190,19 +193,22 @@ def route_minute(window: RouteWindow, state: WindowState) -> RouteMinute:
         positions=len(state.events),
         live_delay_samples=len(delays),
         avg_live_delay_s=sum(delays) / len(delays) if delays else None,
+        p50_live_delay_s=percentile_cont(delays, 0.5),
         p90_live_delay_s=percentile_cont(delays, 0.9),
         late_events=len(state.late),
     )
 
 
 def stop_minute(window: StopWindow, state: WindowState) -> StopMinute:
-    delays = [delay for _, delay in state.events.values() if delay is not None]
+    delays = sorted(delay for _, delay in state.events.values() if delay is not None)
     return StopMinute(
         stop_id=window.stop_id,
         window_start=window.start,
         arrivals=len(state.events),
         live_delay_samples=len(delays),
         avg_live_delay_s=sum(delays) / len(delays) if delays else None,
+        p50_live_delay_s=percentile_cont(delays, 0.5),
+        p90_live_delay_s=percentile_cont(delays, 0.9),
         late_events=len(state.late),
     )
 

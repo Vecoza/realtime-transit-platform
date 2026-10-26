@@ -4,12 +4,14 @@ The aggregator is the consumer group `aggregator` on `hfp.raw`. It reads the sam
 
 | Table | One row per | Values |
 |---|---|---|
-| `rt.route_minute_stats` | route, direction, minute | vehicles, positions, live delay samples, average and p90 live delay |
-| `rt.stop_minute_stats` | stop, minute | arrivals, live delay samples, average live delay |
+| `rt.route_minute_stats` | route, direction, minute | vehicles, positions, live delay samples, average, median and p90 live delay |
+| `rt.stop_minute_stats` | stop, minute | arrivals, live delay samples, average, median and p90 live delay |
 | `rt.vehicle_status` | vehicle | last event, position, journey and its planned end; `active`, `stale` or `finished` |
 | `rt.late_events` | late event | the window it belonged to, the watermark when it arrived, `corrected` or `dropped` |
 
 Every window row also carries `late_events`, `revision`, `first_emitted_at` and `emitted_at`.
+
+The median and p90 are exact for the minute, computed from every counted event in the window, and the dashboards use them rather than the average: a vehicle still signed on to a journey it finished hours ago reports hours of delay, and one such vehicle can move a line's average by minutes while its median does not change. Windows emitted before the median was added have it empty.
 
 The delay in these tables is `live_delay_s`, HSL's own deviation from schedule with the platform's sign (positive when late), taken from the message itself. A stream aggregate has to be computable from the stream alone; the platform's `measured_delay_s` against the timetable needs the timetable join that the sink does, and it is in `rt.stop_events` for analyses.
 

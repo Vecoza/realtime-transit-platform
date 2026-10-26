@@ -75,6 +75,7 @@ ROUTE_COLUMNS = (
     "positions",
     "live_delay_samples",
     "avg_live_delay_s",
+    "p50_live_delay_s",
     "p90_live_delay_s",
     "late_events",
 )
@@ -84,6 +85,8 @@ STOP_COLUMNS = (
     "arrivals",
     "live_delay_samples",
     "avg_live_delay_s",
+    "p50_live_delay_s",
+    "p90_live_delay_s",
     "late_events",
 )
 VEHICLE_COLUMNS = (

@@ -36,7 +36,7 @@ Every step of `init` is idempotent, so it runs on every `docker compose up`: mig
    docker compose up -d --build
    ```
 
-   The first start downloads and loads the timetable (8.8 million stop times) before the stream services start. On the development laptop this took 49 minutes. `docker compose up -d` returns only once `init` has finished, so run it in `tmux` or `screen` and follow `docker compose logs -f init` from a second shell.
+   The first start downloads and loads the timetable (8.8 million stop times) before the stream services start. On the development laptop the whole `init` step took about two minutes (see below). `docker compose up -d` returns only once `init` has finished; follow it with `docker compose logs -f init`.
 4. Check that `init` exited with code 0 and the other services are running:
 
    ```
@@ -67,7 +67,8 @@ Changed services are recreated; `init` applies new migrations before the stream 
 
 The steps above were run on a fresh clone with nothing but `.env`, as a separate Compose project with empty volumes:
 
-- `init` applied all migrations, set the read-only password, loaded the timetable and exported it to Parquet, then exited with code 0.
+- `init` applied all migrations, set the read-only password, loaded the timetable and exported it to Parquet, then exited with code 0 after 126 seconds: download 4 s, staging every file 15 s, `shapes` 13 s, `trips` 11 s, `stop_times` 30 s plus 21 s to attach the partition, 118 s for the whole load, and 4 s for the Parquet export. This is the same load-then-attach path as on the host, and faster than the 173 s measured there earlier.
+- A first attempt took 49 minutes. The container code was the same; the laptop had gone to sleep three times during the load, for 42 of those minutes, and Docker's virtual machine sleeps with it. The measured run kept the laptop awake with `caffeinate`. On a server this does not arise.
 - The producer, sink, aggregator and scheduler started by themselves afterwards. Within a minute the producer was forwarding about 1,320 messages per second and the sink was storing them, with almost every position matched to a trip.
 - Grafana queried PostgreSQL as `grafana_reader`, and both alert rules loaded.
 - The hourly job built the 14 models with their 37 tests in the scheduler container and published the marts.

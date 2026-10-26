@@ -144,16 +144,17 @@ Message rates for `vp`, `arr` and `dep` on ongoing journeys:
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Fri 23 Oct, 21:57 Helsinki (evening) | 2 min | | 774 | 6.0 | 5.7 | 786/s | 2,504 |
 | Sat 24 Oct, 15:17–15:47 Helsinki (afternoon) | 30 min | 862 | 1,086 | 8.1 | 7.8 | 1,102/s | 2,945 |
+| Mon 26 Oct, 07:30–08:30 Helsinki (morning peak) | 60 min | 1,370 | 1,543 | 12.2 | 11.8 | 1,567/s | 3,643 |
 
-A weekday rush-hour sample is still missing. Both samples come from a weekend or an evening. The rate is steady from minute to minute (between 997 and 1,178 per second on Saturday), but it is bursty within a second. The broker delivers in bursts of up to about three times the mean.
+The weekday morning peak is about 40% busier than a Saturday afternoon. The rate is steady from minute to minute (between 997 and 1,178 per second on Saturday, between 1,515 and 1,642 in the Monday peak), but it is bursty within a second. The broker delivers in bursts of up to about two to three times the mean: in the peak, two consecutive seconds carried 3,292 and 3,643 messages, then the rate returned to about 1,550 per second. The hour was recorded without a single disconnect: 5,640,116 messages, 366 MB gzipped.
 
 The 30-minute recording is 120 MB gzipped (1,982,660 messages, about 61 bytes per message compressed, about 590 bytes per envelope uncompressed). A day at this rate is roughly 5.7 GB of recordings, which is why recordings are a development tool and not the archive.
 
-**Duplicates.** 28.1% of all messages are byte-identical copies of an earlier message (same topic and payload). Almost all are trams: 545,915 of 731,079 tram messages (75%) are copies, so a tram position typically arrives about four times. Metros contribute 11,291 copies and buses 14. Deduplication is not a corner case for this feed.
+**Duplicates.** 28.1% of all messages are byte-identical copies of an earlier message (same topic and payload); in the Monday peak it was 20.9%. Almost all are trams: 545,915 of 731,079 tram messages (75%) are copies, so a tram position typically arrives about four times. Metros contribute 11,291 copies and buses 14. Deduplication is not a corner case for this feed.
 
 **Same key, different content.** Metro `tst` mostly has whole-second precision. Two different positions of one metro unit can therefore share `(oper, veh, event, tst)` (seen 7 times in the 3-minute fixture). A deduplication key on those fields alone would drop real positions.
 
-**Event time and processing time.** `received_at − tst` has a median of 0.00 s, p95 0.87 s and p99 6.1 s. The minimum is −0.57 s, so some vehicle clocks run slightly ahead of the receiving machine. Processing time is only a rough check, and lateness must be measured on event time.
+**Event time and processing time.** `received_at − tst` has a median of 0.00 s, p95 0.87 s and p99 6.1 s (Saturday); in the Monday peak, p95 0.21 s and p99 1.6 s. The minimum is −0.57 s, so some vehicle clocks run slightly ahead of the receiving machine. Processing time is only a rough check, and lateness must be measured on event time.
 
 **Nulls.** `lat`, `long`, `spd`, `hdg` and `dl` are occasionally `null`, and `stop` is `null` whenever the vehicle is between stops. `loc` is mostly `GPS`, with some `MAN` (manual), `DR` (dead reckoning) and `ODO` (odometer).
 

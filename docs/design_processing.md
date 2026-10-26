@@ -157,6 +157,22 @@ The first version evaluated the feed lookup once per output row instead of once 
 
 The platform's own share is dominated by the 500 ms batch window plus the producer's 50 ms linger. The source is usually fast, but not always. 188 bus positions arrived more than a minute after their `tst`, the latest 2 minutes 53 seconds after, when vehicles sent buffered messages in a burst. Those late events are what the event-time aggregation has to handle.
 
+**Weekday morning peak.** The hour from 07:30 to 08:30 Helsinki time on Monday 26 October (5,640,116 messages, 1,567 per second, busiest second 3,643) was replayed at its original pace into a fresh topic, with the sink and the aggregator consuming it together:
+
+| | Sink | Aggregator |
+|---|---:|---:|
+| Messages consumed | 5,640,116 | 5,640,116 |
+| Rows stored / events counted | 4,464,085 | 4,419,159 |
+| Duplicates dropped | 1,176,031 (20.9%) | 1,175,924 |
+| Invalid | 0 | 0 |
+| Consumer lag, median of batches | 335 | 363 |
+| Batch work while the host ran at full speed | about 220 ms per 1,150 messages | about 230 ms |
+| Largest lag | 388,678 | 227,704 |
+
+While the laptop ran at full speed, both consumers kept up with the peak: lag stayed below 1,300 messages (under a second of the feed) and each batch's work took about a third of the time between batches. Twice during the hour, for 21 and 5 minutes, the laptop limited its CPU speed (macOS reported `CPU_Speed_Limit` between 20% and 47% that afternoon). Decoding, which uses no database at all, became ten times slower in both processes at the same moment, so the cause was the host, not PostgreSQL or the broker. Lag grew to about four minutes of the feed, then both consumers caught up on their own. Nothing was lost or stored twice: every message was consumed, and stored rows plus duplicates equal the messages.
+
+Consumed again from the beginning of the topic as fast as possible, with the CPU limited to 20–47% the whole time, the sink processed the peak hour at **3,504 messages per second** (2.2 times the peak rate; 6,200 per second in the least throttled minute) and the aggregator at 4,088. On a host that is not throttled the headroom is larger: 7,473 per second on the Saturday recording. The consumer lag alert watches exactly this: in the first episode the lag stayed above its threshold for 19 minutes, so it would have fired.
+
 ## Crash tests
 
 **Automated, in CI.** The fixture is replayed into a fresh topic and the sink is interrupted at an exact point by raising an exception there, which closes the consumer without committing offsets, as a dying process would:

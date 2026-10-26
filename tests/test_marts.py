@@ -189,3 +189,13 @@ def test_a_failed_build_is_recorded_and_publishes_nothing(
     assert conn.execute(
         "SELECT models, tests, failed, published_tables, published_at FROM meta.dbt_runs"
     ).fetchall() == [(1, 1, 1, 0, None)]
+
+
+def test_a_build_that_wrote_no_results_publishes_nothing(
+    conn: psycopg.Connection, migrated: DatabaseSettings, tmp_path: Path
+) -> None:
+    settings = AnalyticsSettings(tmp_path / "missing.duckdb")
+
+    assert publish_marts(migrated, settings, tmp_path / "run_results.json") == 0
+
+    assert conn.execute("SELECT count(*) FROM meta.dbt_runs").fetchone() == (0,)

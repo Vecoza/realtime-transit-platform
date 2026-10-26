@@ -7,5 +7,7 @@
 40 0 * * * python -m archive.lifecycle
 
 # Analytical models and their tests; then publish the marts to PostgreSQL for Grafana.
-# The publish step records every run, also a failed one, and then publishes nothing.
-15 * * * * dbt build --project-dir dbt --profiles-dir dbt; python -m analytics.publish
+# The publish step records every run, also a failed one, and then publishes nothing. A build
+# that is still running holds the lock and the next one is skipped; the old results file is
+# removed first, so a build that fails before writing results never republishes the last one.
+15 * * * * flock -n /app/data/dbt.lock sh -c 'rm -f dbt/target/run_results.json; dbt build --project-dir dbt --profiles-dir dbt; python -m analytics.publish'

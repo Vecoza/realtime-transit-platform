@@ -141,6 +141,9 @@ def connect_duckdb(warehouse: Path, database: DatabaseSettings) -> duckdb.DuckDB
 
 
 def run(database: DatabaseSettings, settings: AnalyticsSettings, results: Path) -> int:
+    if not results.exists():
+        logger.error("event=marts_not_published reason=no_run_results path=%s", results)
+        return 0
     dbt_run = DbtRun.from_results(results)
     with psycopg.connect(database.conninfo, autocommit=True) as conn:
         published = 0

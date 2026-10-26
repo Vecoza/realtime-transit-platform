@@ -33,7 +33,7 @@ All delays here are labelled **live delay, HSL estimate**: the value HSL sends i
 
 ![Punctuality](images/punctuality.png)
 
-**Punctuality** shows the analytical marts for one service day (chosen at the top) and the modes selected: on-time share at timing points, departures, bunching, completeness, and per line, stop and hour. Its delays are labelled **measured delay vs timetable**, the platform's own measurement against the published timetable. Keeping the two labels apart matters: the live estimate and the measured delay agree closely but not exactly (see [design_analytics.md](design_analytics.md#plausibility-measured-against-live-delay)).
+**Punctuality** shows the analytical marts for one service day (chosen at the top) and the modes selected: on-time share at timing points, departures, bunching, completeness, and per line, stop and hour. On-time share by hour is drawn as bars and the average delay by hour as a line, in two panels side by side, since a share and a delay in seconds do not belong on one axis. Every percentage on the dashboards has one decimal. Its delays are labelled **measured delay vs timetable**, the platform's own measurement against the published timetable. Keeping the two labels apart matters: the live estimate and the measured delay agree closely but not exactly (see [design_analytics.md](design_analytics.md#plausibility-measured-against-live-delay)).
 
 ![Pipeline health](images/pipeline_health.png)
 

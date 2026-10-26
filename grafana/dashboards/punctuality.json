@@ -182,7 +182,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "decimals": 1
         },
         "overrides": []
       },
@@ -265,7 +266,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "decimals": 1
         },
         "overrides": []
       },
@@ -307,7 +309,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "decimals": 1
         },
         "overrides": []
       },
@@ -322,8 +325,8 @@
     {
       "id": 6,
       "type": "barchart",
-      "title": "On time and average delay by hour (measured delay vs timetable)",
-      "description": "",
+      "title": "On time by hour (measured delay vs timetable)",
+      "description": "Share of departures at timing points between 60 s early and 180 s late, per local hour.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -331,7 +334,7 @@
       "gridPos": {
         "x": 0,
         "y": 6,
-        "w": 24,
+        "w": 12,
         "h": 8
       },
       "targets": [
@@ -344,11 +347,16 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT lpad(hour_local::text, 2, '0') || ':00' AS hour,\n       round((sum(on_time)::float / nullif(sum(departures), 0) * 100)::numeric, 1) AS on_time_pct,\n       round((sum(avg_delay_s * departures) / nullif(sum(departures), 0))::numeric) AS avg_delay_s\nFROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY hour_local\nORDER BY hour_local"
+          "rawSql": "SELECT lpad(hour_local::text, 2, '0') || ':00' AS hour,\n       round((sum(on_time)::float / nullif(sum(departures), 0) * 100)::numeric, 1) AS on_time_pct\nFROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY hour_local\nORDER BY hour_local"
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100
+        },
         "overrides": [
           {
             "matcher": {
@@ -359,21 +367,61 @@
               {
                 "id": "displayName",
                 "value": "on time"
-              },
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "min",
-                "value": 0
-              },
-              {
-                "id": "max",
-                "value": 100
               }
             ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "hour",
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "barWidth": 0.8,
+        "showValue": "never"
+      }
+    },
+    {
+      "id": 7,
+      "type": "trend",
+      "title": "Average delay by hour (measured delay vs timetable)",
+      "description": "Average departure delay at timing points per local hour (0 to 23), positive when late.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
           },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT hour_local AS hour,\n       round((sum(avg_delay_s * departures) / nullif(sum(departures), 0))::numeric) AS avg_delay_s\nFROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY hour_local\nORDER BY hour_local"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "showPoints": "always",
+            "pointSize": 5
+          }
+        },
+        "overrides": [
           {
             "matcher": {
               "id": "byName",
@@ -383,14 +431,26 @@
               {
                 "id": "displayName",
                 "value": "average delay"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hour"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "hour"
               },
               {
                 "id": "unit",
-                "value": "s"
+                "value": "none"
               },
               {
-                "id": "custom.axisPlacement",
-                "value": "right"
+                "id": "decimals",
+                "value": 0
               }
             ]
           }
@@ -399,15 +459,14 @@
       "options": {
         "xField": "hour",
         "legend": {
+          "showLegend": false,
           "displayMode": "list",
           "placement": "bottom"
-        },
-        "barWidth": 0.8,
-        "groupWidth": 0.7
+        }
       }
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "table",
       "title": "Lines (measured delay vs timetable)",
       "description": "Lines with at least ten departures at timing points that day, least punctual first.",
@@ -450,6 +509,10 @@
               {
                 "id": "unit",
                 "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
               }
             ]
           },
@@ -532,7 +595,7 @@
       }
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "table",
       "title": "Stops (measured delay vs timetable)",
       "description": "Stops with at least ten departures. At stops that are not timing points the timetable's times are approximate and can read up to two minutes late.",
@@ -575,6 +638,10 @@
               {
                 "id": "unit",
                 "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
               }
             ]
           },
@@ -665,7 +732,7 @@
       }
     },
     {
-      "id": 9,
+      "id": 10,
       "type": "table",
       "title": "Bunching by line and stop",
       "description": "Pairs of consecutive trips observed at a stop; bunched below half, a gap above one and a half times the scheduled headway. Only lines and stops with at least the chosen number of observed pairs (default 5) are ranked.",
@@ -786,7 +853,7 @@
       }
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "table",
       "title": "Data completeness by line",
       "description": "Lines with at least the chosen number of expected trips (default 5), least complete first.",
@@ -853,6 +920,10 @@
               {
                 "id": "unit",
                 "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
               }
             ]
           }
@@ -867,7 +938,7 @@
       }
     },
     {
-      "id": 11,
+      "id": 12,
       "type": "barchart",
       "title": "On time by service day (measured delay vs timetable)",
       "description": "",
@@ -897,6 +968,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "decimals": 1,
           "min": 0,
           "max": 100
         },

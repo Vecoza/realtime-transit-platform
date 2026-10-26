@@ -156,7 +156,7 @@
       "id": 2,
       "type": "stat",
       "title": "On time at timing points",
-      "description": "measured delay vs timetable",
+      "description": "measured delay vs timetable. Red below 80%, orange below 90%.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -183,7 +183,24 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "decimals": 1
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -192,7 +209,8 @@
           "calcs": [
             "lastNotNull"
           ]
-        }
+        },
+        "colorMode": "value"
       }
     },
     {
@@ -240,7 +258,7 @@
       "id": 4,
       "type": "stat",
       "title": "Bunched pairs",
-      "description": "Share of consecutive departures closer than half their scheduled headway.",
+      "description": "Share of consecutive departures closer than half their scheduled headway. Orange from 5%, red from 10%.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -267,7 +285,24 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "decimals": 1
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.1
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -276,14 +311,15 @@
           "calcs": [
             "lastNotNull"
           ]
-        }
+        },
+        "colorMode": "value"
       }
     },
     {
       "id": 5,
       "type": "stat",
       "title": "Planned trips seen",
-      "description": "Trips planned to depart while data was arriving that reported an arrival or departure. Metro and ferries send no stop events and are not counted.",
+      "description": "Trips planned to depart while data was arriving that reported an arrival or departure. Metro and ferries send no stop events and are not counted. Red below 90%, orange below 97%.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -310,7 +346,24 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "decimals": 1
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.9
+              },
+              {
+                "color": "green",
+                "value": 0.97
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -319,7 +372,8 @@
           "calcs": [
             "lastNotNull"
           ]
-        }
+        },
+        "colorMode": "value"
       }
     },
     {

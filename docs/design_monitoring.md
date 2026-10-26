@@ -53,6 +53,23 @@ All delays here are labelled **live delay, HSL estimate**: the value HSL sends i
 
 "Messages in" is what the sink consumed from the raw topic. The producer's own rate is not in PostgreSQL; Grafana reads nothing else.
 
+## Colours
+
+A colour on a dashboard says whether a value is good or bad, so every key figure gets thresholds that match its meaning, and figures with no good or bad value (vehicles reporting, departures counted, partition sizes) stay uncoloured. Suspect sign-ons are shown in a neutral blue: their number says something about the data, not about the platform.
+
+| Figure | Green | Orange | Red |
+|---|---|---|---|
+| On time at timing points | 90% or more | 80–90% | below 80% |
+| Bunched pairs | below 5% | 5–10% | 10% or more |
+| Planned trips seen (completeness) | 97% or more | 90–97% | below 90% |
+| Stale vehicles | below 10 | 10–30 | 30 or more |
+| Network median delay | below 2 min | 2–5 min | 5 min or more |
+| Aggregator behind now | below 20 s | 20–60 s | 60 s or more |
+| Since data was last stored | below 1 min | 1–5 min | 5 min or more (the no-data alert) |
+| Sink lag now | below 10,000 messages or 10 s of feed | up to 30,000 or 30 s | above, where the lag alert's threshold lies |
+| Since the last archive run (daily job) | below 26 h | 26–50 h | 50 h or more |
+| Since the last dbt run (hourly job) | below 2 h | 2–4 h | 4 h or more |
+
 ## Alert rules
 
 Two rules, provisioned from `grafana/provisioning/alerting/rules.yaml` and evaluated every minute:

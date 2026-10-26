@@ -349,7 +349,7 @@
       "id": 8,
       "type": "stat",
       "title": "Since the last archive run",
-      "description": "",
+      "description": "The storage lifecycle runs daily at 00:40 UTC. Orange after 26 hours, red after 50.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -375,7 +375,24 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 93600
+              },
+              {
+                "color": "red",
+                "value": 180000
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -385,7 +402,7 @@
             "lastNotNull"
           ]
         },
-        "colorMode": "none"
+        "colorMode": "background"
       }
     },
     {
@@ -492,7 +509,7 @@
       "id": 11,
       "type": "stat",
       "title": "Since data was last stored",
-      "description": "The alert 'No data for 5 minutes' fires on the same value.",
+      "description": "Orange after a minute; red from five minutes, where the alert 'No data for 5 minutes' fires on the same value.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -525,6 +542,10 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
               },
               {
                 "color": "red",

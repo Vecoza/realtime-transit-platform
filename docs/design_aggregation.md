@@ -109,7 +109,7 @@ A vehicle tells HFP which journey it runs, and that sign-on is sometimes wrong. 
 
 Their reported delays were 91 minutes on average. Counted like any other vehicle, one such train put its line at the top of every delay ranking, and since coupled units report separately, even a median could not hold it back.
 
-**The rule.** An event is suspect when its journey matched a timetable trip and the event's `tst` is more than `AGGREGATOR_SUSPECT_AFTER_S` (900 s) after that trip's planned end. A suspect event still counts as a position and its vehicle stays on the map, but its delay is left out of every delay figure of the route and stop windows. `rt.vehicle_status.suspect` marks the vehicle as long as its latest event is suspect, and the live dashboard lists those vehicles in a table of their own.
+**The rule.** An event is suspect when its journey matched a timetable trip and the event's `tst` is more than `SUSPECT_SIGN_ON_AFTER_S` (900 s) after that trip's planned end. A suspect event still counts as a position and its vehicle stays on the map, but its delay is left out of every delay figure of the route and stop windows. `rt.vehicle_status.suspect` marks the vehicle as long as its latest event is suspect, and the live dashboard lists those vehicles in a table of their own. The analytical models apply the same rule, with the same setting, to arrivals and departures (see [design_analytics.md](design_analytics.md#suspect-sign-ons-in-the-marts)).
 
 The rule cannot tell a wrong sign-on from a vehicle that really is more than 15 minutes late at the end of its trip; both are shown in the suspect table rather than ranked. Journeys without a timetable trip have no planned end and are never suspect.
 

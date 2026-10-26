@@ -2,7 +2,7 @@
     The stream covered a minute when the platform received stop events during it; receipt
     time is used, so a trickle of buffered messages about earlier minutes does not count as
     coverage. A trip is expected when one of its planned departures falls in a covered
-    minute, and seen when it reported an arrival or departure.
+    minute, and seen when it reported an arrival or departure that is not a suspect sign-on.
     Metro and ferries report positions only, so their routes are left out. -#}
 with covered_minutes as (
     select distinct date_trunc('minute', received_at) as minute
@@ -22,8 +22,8 @@ expected as (
 
 seen as (
     select distinct oday as service_date, feed_id, trip_id
-    from {{ ref('stg_stop_events') }}
-    where match_status = 'matched'
+    from {{ ref('int_stop_events') }}
+    where not is_suspect_sign_on
 )
 
 select

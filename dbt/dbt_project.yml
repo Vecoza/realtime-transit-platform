@@ -10,6 +10,8 @@ target-path: target
 clean-targets: ["target", "dbt_packages"]
 
 vars:
+  # Shared with the aggregator: events this long after their trip's planned end are suspect.
+  suspect_sign_on_after_s: "{{ env_var('SUSPECT_SIGN_ON_AFTER_S', '900') }}"
   archive_dir: "{{ env_var('ARCHIVE_DIR', 'data/archive') }}"
   # Departures at timing points between 60 s early and 180 s late count as on time.
   on_time_early_s: 60

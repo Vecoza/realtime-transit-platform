@@ -5,12 +5,13 @@ PostgreSQL, then the day is moved to Parquet and the timetable version it was ma
 dropped, and the marts are built again from the archive.
 """
 
+import dataclasses
 import json
 import shutil
 import subprocess
 import sys
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import duckdb
@@ -160,7 +161,7 @@ def test_marts_are_published_to_postgres_and_replaced_by_the_next_build(
     ).fetchone() == (0,)
     assert conn.execute(
         "SELECT models, failed, published_tables FROM meta.dbt_runs"
-    ).fetchall() == [(14, 0, len(PUBLISHED))]
+    ).fetchall() == [(15, 0, len(PUBLISHED))]
 
 
 def test_a_failed_build_is_recorded_and_publishes_nothing(
@@ -199,3 +200,70 @@ def test_a_build_that_wrote_no_results_publishes_nothing(
     assert publish_marts(migrated, settings, tmp_path / "run_results.json") == 0
 
     assert conn.execute("SELECT count(*) FROM meta.dbt_runs").fetchone() == (0,)
+
+
+def test_a_departure_long_after_its_trip_ended_is_a_suspect_sign_on(
+    conn: psycopg.Connection, warehouse: Path, lifecycle: Lifecycle, tmp_path: Path
+) -> None:
+    feed_dir = tmp_path / "gtfs"
+    shutil.copytree(FIXTURES / "gtfs_saturday_routes", feed_dir)
+    load_build(conn, feed_dir, tmp_path, "2026-10-24")
+    conn.commit()
+    events = [decode(e) for e in read_envelopes([FIXTURES / "hfp_saturday_routes.jsonl"])]
+    store_saturday(conn)
+    operator_id, vehicle_number, tst, trip_end = conn.execute("""
+        SELECT e.operator_id, e.vehicle_number, e.tst,
+               (SELECT gtfs.to_utc(e.oday, max(st.arrival_offset_seconds))
+                FROM gtfs.stop_times AS st
+                WHERE st.feed_id = e.feed_id AND st.trip_id = e.trip_id)
+        FROM rt.stop_events AS e
+        WHERE e.event_type = 'dep' AND e.match_status = 'matched'
+        ORDER BY e.tst
+        LIMIT 1
+    """).fetchone()
+    (departure,) = [
+        e
+        for e in events
+        if (e.operator_id, e.vehicle_number, e.event_type, e.tst)
+        == (operator_id, vehicle_number, "dep", tst)
+    ]
+    copies = {
+        minutes: dataclasses.replace(
+            departure,
+            tst=trip_end + timedelta(minutes=minutes),
+            payload_hash=bytes([minutes]) * 16,
+        )
+        for minutes in (14, 16)
+    }
+    (stored_suspects,) = conn.execute("""
+        SELECT count(*)
+        FROM rt.stop_events AS e
+        WHERE e.match_status = 'matched'
+          AND e.tst > (SELECT gtfs.to_utc(e.oday, max(st.arrival_offset_seconds))
+                       FROM gtfs.stop_times AS st
+                       WHERE st.feed_id = e.feed_id AND st.trip_id = e.trip_id)
+                      + interval '15 minutes'
+    """).fetchone()
+    ensure_partitions(conn, event_days(list(copies.values())))
+    with conn.transaction():
+        write_events(conn, list(copies.values()))
+    conn.commit()
+    lifecycle.run(date(2026, 10, 25))
+
+    build_marts(warehouse)
+
+    with duckdb.connect(str(warehouse), read_only=True) as db:
+        flags = dict(
+            db.execute(
+                "SELECT tst, is_suspect_sign_on FROM int_stop_events WHERE tst IN (?, ?)",
+                [copy.tst for copy in copies.values()],
+            ).fetchall()
+        )
+        suspect_total = db.execute(
+            "SELECT count(*) FROM int_stop_events WHERE is_suspect_sign_on"
+        ).fetchone()
+    assert {tst - trip_end: flag for tst, flag in flags.items()} == {
+        timedelta(minutes=14): False,
+        timedelta(minutes=16): True,
+    }
+    assert suspect_total == (stored_suspects + 1,)

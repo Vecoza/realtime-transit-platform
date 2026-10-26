@@ -15,6 +15,11 @@ models:
           - not_null
           - between:
               arguments: {min_value: -7200, max_value: 14400}
+  - name: int_stop_events
+    description: Matched arrivals and departures, with suspect sign-ons marked.
+    columns:
+      - name: is_suspect_sign_on
+        tests: [not_null]
   - name: int_scheduled_departures
     description: Every departure the timetable planned on the observed service days.
     tests:

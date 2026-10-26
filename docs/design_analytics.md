@@ -23,7 +23,8 @@ DuckDB attaches PostgreSQL read-only and reads the Parquet archive directly:
 |---|---|---|
 | `stg_stop_events` | event | PostgreSQL ∪ Parquet, as above |
 | `stg_gtfs_*` | timetable row | trips, stop times (with the timing-point flag), service dates, routes, stops of every version |
-| `int_departures` | trip × stop × service day | matched `dep` events with the platform's `measured_delay_s`. Coupled units of a train or tram each report the trip; the first departure counts |
+| `int_stop_events` | event | matched arrivals and departures, each marked when it is a suspect sign-on |
+| `int_departures` | trip × stop × service day | matched `dep` events with the platform's `measured_delay_s`, without suspect sign-ons. Coupled units of a train or tram each report the trip; the first departure counts |
 | `int_scheduled_departures` | trip × stop × service day | every departure the timetable planned on the observed days, in the version the events were matched to that day |
 | `mart_on_time_performance` | service day × local hour × route | punctuality at timing points |
 | `mart_stop_punctuality` | service day × local hour × stop | delay at every stop |
@@ -44,6 +45,18 @@ DuckDB attaches PostgreSQL read-only and reads the Parquet archive directly:
 **Completeness** compares the trips planned to depart in minutes the stream covered with the trips that reported an arrival or departure. A minute is covered when the platform received stop events during it. Receipt time is used, not event time: after a pause, vehicles send what they buffered, and a trickle of those messages about earlier minutes is not coverage. Metro and ferries report positions only, so their routes are left out rather than counted as missing.
 
 The first version took the period from the day's first to its last event as covered. On 26 October, recorded in three separate stretches (07:28–08:30, 16:58–17:13 and 19:40–20:01 Helsinki time), that counted 17,621 trips as expected and reported 27.8% of them seen. Counted by covered minutes, 4,919 trips were expected and 95.8% seen, close to the 96.4% of the continuously recorded Saturday sample. Trips planned just before the end of a covered stretch can still be missed when they leave late, so the share is a slight underestimate at the edges.
+
+## Suspect sign-ons in the marts
+
+A vehicle still reporting a trip whose planned end passed more than 15 minutes earlier is a suspect sign-on ([design_aggregation.md](design_aggregation.md#suspect-sign-ons)). The marts apply the same rule as the live statistics: `int_stop_events` marks such arrivals and departures, departures and completeness leave them out, and both sides read the margin from one setting, `SUSPECT_SIGN_ON_AFTER_S`. The rule exists twice, in Python for the stream and as the dbt macro `is_suspect_sign_on` for the marts; a test stores copies of a real departure 14 and 16 minutes after its trip's planned end and checks that dbt marks only the second, and that it marks exactly the stored events the rule marks in PostgreSQL.
+
+| Service day | Matched stop events | Suspect | Departures removed from the marts |
+|---|---:|---:|---:|
+| Sat 24 October | 28,620 | 8 | 4 |
+| Sun 25 October | 15,645 | 0 | 0 |
+| Mon 26 October | 123,510 | 63 (0.05%) | 30 |
+
+The marts change very little, because the vehicles the live view flags most, commuter train units signed on to an old journey, mostly send positions only. Line R, which led the live suspect list on 26 October, keeps all 26 of its departures at timing points, 50% of them on time. Its average measured delay of 342 seconds that day is mainly one departure of another kind of wrong sign-on: three coupled units signed on to the 07:25 departure left the first station at 08:25, a "delay" of 3,596 seconds. The trip's planned end was still ahead, so the rule cannot see it.
 
 ## Tests
 

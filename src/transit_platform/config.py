@@ -112,7 +112,7 @@ class AggregatorSettings:
             correction_horizon_s=int(os.getenv("AGGREGATOR_CORRECTION_HORIZON_S", "600")),
             idle_timeout_s=float(os.getenv("AGGREGATOR_IDLE_TIMEOUT_S", "30")),
             stale_after_s=int(os.getenv("AGGREGATOR_STALE_AFTER_S", "120")),
-            suspect_after_s=int(os.getenv("AGGREGATOR_SUSPECT_AFTER_S", "900")),
+            suspect_after_s=int(os.getenv("SUSPECT_SIGN_ON_AFTER_S", "900")),
             storage_wait_s=float(os.getenv("AGGREGATOR_STORAGE_WAIT_S", "300")),
             instance_id=os.getenv("AGGREGATOR_INSTANCE_ID") or f"{group_id}-{socket.gethostname()}",
         )

@@ -1,6 +1,6 @@
 {#- Arrivals and departures: PostgreSQL for recent days, Parquet for archived ones. -#}
 {% set columns %}
-    tst, operator_id, vehicle_number, event_type, oday, route_id, direction_id, feed_id,
+    tst, received_at, operator_id, vehicle_number, event_type, oday, route_id, direction_id, feed_id,
     trip_id, stop_id, stop_sequence, match_status, planned_time, measured_delay_s, live_delay_s
 {% endset %}
 

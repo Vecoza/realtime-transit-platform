@@ -41,7 +41,9 @@ DuckDB attaches PostgreSQL read-only and reads the Parquet archive directly:
 
 **Bunching** compares two consecutive departures of a route and direction at a stop. "Consecutive" is defined by the timetable: the trips are ordered by planned departure, so every pair has a scheduled headway, including when the trip in between was not observed. A pair counts when both trips were observed at that stop. It is **bunched** when the observed headway is less than half the scheduled one, and a **gap** when it is more than one and a half times. The thresholds are dbt variables.
 
-**Completeness** compares the trips planned with at least one departure inside the period the stream covered that day with the trips that reported an arrival or departure. Metro and ferries report positions only, so their routes are left out rather than counted as missing.
+**Completeness** compares the trips planned to depart in minutes the stream covered with the trips that reported an arrival or departure. A minute is covered when the platform received stop events during it. Receipt time is used, not event time: after a pause, vehicles send what they buffered, and a trickle of those messages about earlier minutes is not coverage. Metro and ferries report positions only, so their routes are left out rather than counted as missing.
+
+The first version took the period from the day's first to its last event as covered. On 26 October, recorded in three separate stretches (07:28–08:30, 16:58–17:13 and 19:40–20:01 Helsinki time), that counted 17,621 trips as expected and reported 27.8% of them seen. Counted by covered minutes, 4,919 trips were expected and 95.8% seen, close to the 96.4% of the continuously recorded Saturday sample. Trips planned just before the end of a covered stretch can still be missed when they leave late, so the share is a slight underestimate at the edges.
 
 ## Tests
 

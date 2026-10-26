@@ -69,7 +69,7 @@ models:
           - between:
               arguments: {min_value: 1, max_value: 86400}
   - name: mart_data_completeness
-    description: Trips planned to depart inside the observed period against trips seen, per route and service day.
+    description: Trips planned to depart in minutes the stream covered against trips seen, per route and service day.
     tests:
       - unique_combination:
           arguments:

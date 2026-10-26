@@ -1,21 +1,20 @@
 {#- Trips the timetable planned against trips seen in the stream, per route and service day.
-    A trip is expected when at least one of its planned departures lies inside the period the
-    stream covered that day, and seen when it reported an arrival or departure. Metro and
-    ferries report positions only, so their routes are left out. -#}
-with coverage as (
-    select oday as service_date, min(tst) as first_event, max(tst) as last_event
+    The stream covered a minute when the platform received stop events during it; receipt
+    time is used, so a trickle of buffered messages about earlier minutes does not count as
+    coverage. A trip is expected when one of its planned departures falls in a covered
+    minute, and seen when it reported an arrival or departure.
+    Metro and ferries report positions only, so their routes are left out. -#}
+with covered_minutes as (
+    select distinct date_trunc('minute', received_at) as minute
     from {{ ref('stg_stop_events') }}
-    where match_status = 'matched'
-    group by oday
 ),
 
 expected as (
     select distinct s.service_date, s.feed_id, s.trip_id, s.route_id, r.route_short_name,
            {{ transport_mode('r.route_type') }} as mode
     from {{ ref('int_scheduled_departures') }} as s
-    join coverage as c
-      on c.service_date = s.service_date
-     and s.planned_departure between c.first_event and c.last_event
+    join covered_minutes as c
+      on c.minute = date_trunc('minute', s.planned_departure)
     join {{ ref('stg_gtfs_routes') }} as r
       on r.feed_id = s.feed_id and r.route_id = s.route_id
     where r.route_type not in ({{ var('modes_without_stop_events') | join(', ') }})

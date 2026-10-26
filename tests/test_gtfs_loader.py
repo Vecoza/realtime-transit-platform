@@ -5,7 +5,7 @@ import psycopg
 import pytest
 
 from gtfs.download import FeedFile
-from gtfs.loader import InvalidFeedError, LoadStatus, load_feed
+from gtfs.loader import InvalidFeedError, LoadStatus, current_feed_id, load_feed
 from gtfs.service_time import to_utc
 from tests.conftest import zip_feed
 
@@ -68,6 +68,14 @@ def test_blank_values_become_null_and_parent_stations_resolve(
     assert conn.execute(
         "SELECT route_type FROM gtfs.routes WHERE route_id = '2550'"
     ).fetchone() == (702,)
+
+
+def test_the_current_feed_is_known_only_after_a_load(
+    conn: psycopg.Connection, feed_dir: Path, tmp_path: Path
+) -> None:
+    assert current_feed_id(conn) is None
+    loaded = load_feed(conn, feed_from(feed_dir, tmp_path))
+    assert current_feed_id(conn) == loaded.feed_id
 
 
 def test_reloading_the_same_feed_is_a_no_op(

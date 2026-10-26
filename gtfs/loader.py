@@ -54,6 +54,12 @@ class LoadResult:
     duration_seconds: float = 0.0
 
 
+def current_feed_id(conn: psycopg.Connection) -> int | None:
+    """The feed version the platform matches against, or None before the first load."""
+    row = conn.execute("SELECT feed_id FROM gtfs.feed_versions WHERE is_current").fetchone()
+    return row[0] if row else None
+
+
 def load_feed(conn: psycopg.Connection, feed: FeedFile) -> LoadResult:
     """Load ``feed`` and make it current, or reuse the version with the same checksum."""
     started = time.perf_counter()

@@ -22,14 +22,19 @@ WORKDIR /app
 # A volume mounted here starts out owned by the app user.
 RUN mkdir data && chown app:app data
 
+# Dependencies first, in their own layer: a code change then rebuilds without the network.
 COPY pyproject.toml constraints.txt README.md ./
+RUN python -c "import tomllib; p = tomllib.load(open('pyproject.toml', 'rb'))['project']; \
+print('\n'.join(p['dependencies'] + p['optional-dependencies']['analytics']))" > requirements.txt \
+    && pip install --no-cache-dir -c constraints.txt -r requirements.txt \
+    && rm requirements.txt
 COPY src src
 COPY gtfs gtfs
 COPY producer producer
 COPY processor processor
 COPY archive archive
 COPY analytics analytics
-RUN pip install --no-cache-dir -c constraints.txt ".[analytics]"
+RUN pip install --no-cache-dir --no-deps .
 
 COPY alembic.ini ./
 COPY db db

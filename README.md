@@ -142,6 +142,29 @@ realtime-transit-platform/
 └── tests/                  pytest tests and recorded fixtures of the real feed
 ```
 
+## Running it
+
+Docker with the Compose plugin is the only requirement.
+
+**Demo, offline.** Runs on the recordings committed with the tests, without the live feed:
+
+```
+make demo
+```
+
+It takes a few minutes and ends by printing the address of the *Punctuality* dashboard, <http://localhost:3000/d/punctuality?var-day=2026-10-24>. Grafana opens without a login.
+
+**Live.** Streams the real HSL feed and downloads the current timetable on the first start:
+
+```
+cp .env.example .env    # then set new passwords
+docker compose up -d --build
+```
+
+Grafana is at <http://localhost:3000>; *Pipeline health* shows within a minute whether messages are flowing.
+
+`docker compose ps` shows what is running, `make logs` follows the logs and `make down` stops everything while keeping the data. Running on a server is described in [deployment.md](docs/deployment.md).
+
 ## Documentation
 
 | Document | Contents |

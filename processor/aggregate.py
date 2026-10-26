@@ -110,6 +110,7 @@ VEHICLE_COLUMNS = (
     "status",
     "silent_since",
     "suspect",
+    "planned_start",
 )
 LATE_COLUMNS = (
     "operator_id",
@@ -675,7 +676,7 @@ def rebuild(
     columns = ", ".join(VEHICLE_COLUMNS)
     for row in conn.execute(
         f"SELECT {columns} FROM rt.vehicle_status"
-        " WHERE status = 'active' OR (status = 'stale' AND planned_end IS NOT NULL)"
+        " WHERE status IN ('active', 'waiting') OR (status = 'stale' AND planned_end IS NOT NULL)"
     ):
         windows.restore_vehicle(VehicleState(**dict(zip(VEHICLE_COLUMNS, row, strict=True))))
     logger.info(

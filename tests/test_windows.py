@@ -238,6 +238,27 @@ def test_silent_vehicle_is_stale_until_its_trip_is_planned_to_end_then_finished(
     assert 649 not in {v.vehicle_number for v in windows.vehicles.values()}
 
 
+def test_vehicle_silent_before_its_trip_starts_is_waiting_then_stale() -> None:
+    windows, _ = aggregator()
+    early = event(0, oday="2026-10-24", start="15:05")
+    journey = journey_of(early)
+    assert journey is not None
+    windows.set_trip_ends({journey: T0 + timedelta(minutes=40)})
+    windows.add(early, 0)
+
+    windows.add(event(125, vehicle="00650"), 0)
+    waiting = windows.advance()
+    assert [(v.status, v.planned_start) for v in waiting.vehicles if v.vehicle_number == 649] == [
+        ("waiting", T0 + timedelta(minutes=5))
+    ]
+    assert (waiting.waiting, waiting.stale) == (1, 0)
+
+    windows.add(event(300, vehicle="00650"), 0)
+    stale = windows.advance()
+    assert [v.status for v in stale.vehicles if v.vehicle_number == 649] == ["stale"]
+    assert stale.stale == 1
+
+
 def test_vehicle_silent_after_its_trip_is_planned_to_end_is_finished() -> None:
     windows, _ = aggregator()
     journey = journey_of(event(0))

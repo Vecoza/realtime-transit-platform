@@ -6,7 +6,7 @@ The aggregator is the consumer group `aggregator` on `hfp.raw`. It reads the sam
 |---|---|---|
 | `rt.route_minute_stats` | route, direction, minute | vehicles, positions, live delay samples, journeys, and the average, median and p90 live delay over journeys |
 | `rt.stop_minute_stats` | stop, minute | arrivals, live delay samples, journeys, and the average, median and p90 live delay over journeys |
-| `rt.vehicle_status` | vehicle | last event, position, journey and its planned end; `active`, `stale` or `finished`; whether it is a suspect sign-on |
+| `rt.vehicle_status` | vehicle | last event, position, journey with its planned start and end; `active`, `waiting`, `stale` or `finished`; whether it is a suspect sign-on |
 | `rt.late_events` | late event | the window it belonged to, the watermark when it arrived, `corrected` or `dropped` |
 
 Every window row also carries `late_events`, `revision`, `first_emitted_at` and `emitted_at`.
@@ -92,12 +92,13 @@ The aggregator's state is the windows in memory, and it must survive a `kill -9`
 
 A vehicle on a trip that has sent nothing for two minutes has gone silent. This is an event-time timer: it runs out when the watermark passes the vehicle's last `tst` plus two minutes, so a backlog in the stream cannot make every vehicle look silent. `silent_since` is the event time at which the two minutes ran out. Any newer message makes the vehicle `active` again. The update only applies when its `last_tst` is not older than the stored one, so a late event cannot move a vehicle back in time.
 
-Going silent means two different things. A vehicle that stops sending in the middle of its trip is a problem worth showing; a vehicle that has reached the end of its trip has simply left the journey topics (HSL reports that phase on `deadrun` topics, which the platform does not subscribe to). The aggregator tells them apart by the trip's **planned end**, the scheduled arrival at its last stop:
+Going silent means two different things. A vehicle that stops sending in the middle of its trip is a problem worth showing; a vehicle that has reached the end of its trip has simply left the journey topics (HSL reports that phase on `deadrun` topics, which the platform does not subscribe to). The aggregator tells them apart by the trip's **planned end**, the scheduled arrival at its last stop. A third case is a vehicle that signs on to its next journey at the terminus and then goes quiet, for example because it was switched off during the break; it is silent before its trip has even started. The trip's **planned start** (the operating day and start time HFP reports) separates that case:
 
-- **`stale`**: silent while the planned end is still ahead of the watermark. The vehicle should be running and is not reporting.
+- **`waiting`**: silent before the planned start, which is still ahead of the watermark. Nothing is wrong yet; once the watermark passes the planned start and the vehicle is still silent, it becomes stale.
+- **`stale`**: silent after the planned start while the planned end is still ahead of the watermark. The vehicle should be running and is not reporting.
 - **`finished`**: silent after the planned end, or still silent when the watermark reaches it. The vehicle is then forgotten.
 
-The planned end is looked up in the timetable once per journey, the first time a batch contains it, with the same matching as the sink (route, direction, operating day and start in the feed valid on that day), and kept on the vehicle row. A journey without a timetable trip has no planned end; its vehicle is marked stale and forgotten, as it cannot be told apart. After a restart, active vehicles and stale vehicles with a planned end are read back, so a stale vehicle still turns finished.
+The planned end is looked up in the timetable once per journey, the first time a batch contains it, with the same matching as the sink (route, direction, operating day and start in the feed valid on that day), and kept on the vehicle row. A journey without a timetable trip has no planned end; its vehicle is marked stale and forgotten, as it cannot be told apart. After a restart, active and waiting vehicles and stale vehicles with a planned end are read back, so a waiting vehicle still turns stale and a stale one finished.
 
 ## Suspect sign-ons
 

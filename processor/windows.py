@@ -11,8 +11,9 @@ Everything here is in memory and free of I/O, so the rules can be tested on thei
 - An event for a closed window is late: it is added and the window is emitted again as a
   correction. Once the watermark is the correction horizon past a window's end, the window
   is forgotten and events for it are dropped.
-- A vehicle on a trip that has sent nothing for ``stale_after`` of event time is stale while
-  its trip is still planned to run, and finished once the trip's planned end has passed.
+- A vehicle on a trip that has sent nothing for ``stale_after`` of event time is waiting
+  before its trip's planned start, stale while the trip is planned to run, and finished once
+  the trip's planned end has passed.
 - A vehicle still reporting a journey whose planned end passed more than ``suspect_after``
   ago is a suspect sign-on: its position counts, its delay does not.
 - Delay figures are per journey: each journey's median delay in the minute counts once, so
@@ -31,6 +32,7 @@ from datetime import date, datetime, timedelta
 from datetime import time as clock_time
 from typing import NamedTuple
 
+from gtfs.service_time import to_utc
 from processor.decode import Event
 
 MINUTE = timedelta(minutes=1)
@@ -148,6 +150,7 @@ class VehicleState:
     status: str = "active"
     silent_since: datetime | None = None
     suspect: bool = False
+    planned_start: datetime | None = None
 
 
 @dataclass
@@ -157,6 +160,7 @@ class Emission:
     vehicles: list[VehicleState] = field(default_factory=list)
     stale: int = 0
     finished: int = 0
+    waiting: int = 0
 
 
 def event_key(operator_id: int, vehicle_number: int, payload_hash: bytes) -> bytes:
@@ -408,16 +412,23 @@ class WindowAggregator:
             self.changed_vehicles.add(vid)
             if status == "stale":
                 emission.stale += 1
+            elif status == "waiting":
+                emission.waiting += 1
             else:
                 emission.finished += 1
         return self._vehicles_into(emission)
 
     def _silent_status(self, vehicle: VehicleState, watermark: datetime) -> str:
-        """Stale while the trip is planned to run, finished after; unknown trips stay stale."""
+        """Waiting before the trip's start, stale while it is planned to run, finished after.
+
+        A trip missing from the timetable has no planned end and stays stale once started.
+        """
         if vehicle.route_id is None or watermark < vehicle.last_tst + self.rules.stale_after:
             return vehicle.status
         if vehicle.planned_end is not None and watermark >= vehicle.planned_end:
             return "finished"
+        if vehicle.planned_start is not None and watermark < vehicle.planned_start:
+            return "waiting"
         return "stale"
 
     def take_late_events(self) -> list[LateEvent]:
@@ -476,6 +487,9 @@ class WindowAggregator:
             vehicle.silent_since = None
         journey = journey_of(event)
         vehicle.planned_end = None if journey is None else self.trip_ends.get(journey)
+        vehicle.planned_start = (
+            None if journey is None else to_utc(journey.oday, journey.start_offset_seconds)
+        )
         vehicle.suspect = self.is_suspect(journey, event.tst)
         self.changed_vehicles.add(vid)
 

@@ -35,7 +35,7 @@ The data arrives continuously, out of order and sometimes twice. The platform ha
 
 **6. Monitoring.** Three Grafana dashboards and two alert rules, all provisioned from files and read through a read-only database role: the network now, punctuality per day and hour, and the health of the pipeline itself. Every dashboard and alert query is tested against that role.
 
-**7. Deployment.** The whole platform starts from a clean checkout and one environment file as a set of containers with restart policies; a one-off step applies the migrations, sets the dashboards' password and loads the first timetable. No port is reachable from outside the host.
+**7. Deployment.** The whole platform starts from a clean checkout and one environment file as a set of containers with restart policies; a one-off step applies the migrations, sets the dashboards' password and loads the first timetable. No port is reachable from outside the host. A demo runs the whole platform without the live feed or an internet connection, on recorded fixtures of the real feed and a matching timetable extract.
 
 ## Architecture
 

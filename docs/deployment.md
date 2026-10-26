@@ -74,6 +74,28 @@ The steps above were run on a fresh clone with nothing but `.env`, as a separate
 - The hourly job built the 14 models with their 37 tests in the scheduler container and published the marts.
 - The laptop suspended twice for about 15 minutes during the test. Each time, the sink and the aggregator found on their first commit that the broker had removed them from their group, exited, and were restarted by Docker; they resumed from their last committed offsets without losing or duplicating data.
 
+## Demo without the live feed
+
+```
+make demo
+```
+
+runs the platform in containers on the recordings committed with the tests, without the live feed and without an internet connection once the image is built:
+
+1. creates `.env` from `.env.example` if there is none, builds the application image and starts PostgreSQL and Redpanda;
+2. applies the migrations, sets the read-only password, loads the fixture timetable (an extract of HSL's timetable of 24 October 2026 with lines 79 and 400) and exports it to Parquet;
+3. starts the sink, the aggregator and Grafana, but not the producer;
+4. replays the fixture recording of those two lines (1,528 real messages of Saturday 24 October) as fast as possible;
+5. waits until the sink and the aggregator have consumed the topic to its end (`python -m processor.wait`);
+6. builds and tests the dbt models and publishes the marts;
+7. prints the address of the *Punctuality* dashboard for that day.
+
+The live panels of *Network now* stay empty, as they show only the last minutes; *Punctuality* and *Pipeline health* show the replayed data. `make down` stops everything; the data stays in the Docker volumes.
+
+`make demo FULL=1` downloads HSL's current timetable instead and replays the recordings in `RECORDING` (a file or directory, by default `data/recordings`, which a fresh clone does not have; record some with `make record`). A recording only matches the timetable when it was made within the timetable's validity period, so recent recordings are the ones to use.
+
+**Tested offline.** From a fresh clone with no `.env`, with every service except Grafana attached to a Docker network marked `internal`, which has no route outside the host (a request from that network to HSL's server timed out, the same request from the default network got an answer): the demo finished in about nine minutes including the image build, the replay took 2 seconds, and dbt built 15 models and passed 38 tests. The image is built so that a code change rebuilds without the network: the dependencies and DuckDB's PostgreSQL extension are installed in layers before the code is copied, and the package itself is installed without fetching build tools.
+
 ## Data
 
 | Volume | Contents |

@@ -16,7 +16,48 @@
     "to": "now"
   },
   "templating": {
-    "list": []
+    "list": [
+      {
+        "type": "custom",
+        "name": "min_arrivals",
+        "label": "Min arrivals per stop",
+        "description": "Stops need at least this many arriving journeys in the last 15 minutes to be ranked.",
+        "query": "1,3,5,10,20",
+        "current": {
+          "text": "5",
+          "value": "5"
+        },
+        "options": [
+          {
+            "text": "1",
+            "value": "1",
+            "selected": false
+          },
+          {
+            "text": "3",
+            "value": "3",
+            "selected": false
+          },
+          {
+            "text": "5",
+            "value": "5",
+            "selected": true
+          },
+          {
+            "text": "10",
+            "value": "10",
+            "selected": false
+          },
+          {
+            "text": "20",
+            "value": "20",
+            "selected": false
+          }
+        ],
+        "multi": false,
+        "includeAll": false
+      }
+    ]
   },
   "annotations": {
     "list": []
@@ -538,7 +579,7 @@
       "id": 9,
       "type": "table",
       "title": "Worst stops, last 15 minutes (live delay, HSL estimate)",
-      "description": "Stops with at least three arrivals in the last 15 minutes, by the median delay vehicles arrived with. As for lines, each minute stores the exact median and p90, and the table shows the middle value of those over the last 15 minutes.",
+      "description": "Stops with at least the chosen number of arrivals (journeys, default 5) in the last 15 minutes, by the median delay vehicles arrived with. Suspect sign-ons are left out. As for lines, each minute stores the exact median and p90, and the table shows the middle value of those over the last 15 minutes.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -559,7 +600,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT d.stop_code AS stop,\n       d.stop_name AS name,\n       sum(s.arrivals) AS arrivals,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p50_live_delay_s))::numeric) AS median_delay_s,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p90_live_delay_s))::numeric) AS p90_delay_s\nFROM rt.stop_minute_stats AS s\nLEFT JOIN marts.dim_stops AS d USING (stop_id)\nWHERE s.window_start > now() - interval '15 minutes' AND s.p50_live_delay_s IS NOT NULL\nGROUP BY s.stop_id, 1, 2\nHAVING sum(s.live_delay_samples) >= 3\nORDER BY median_delay_s DESC\nLIMIT 15"
+          "rawSql": "SELECT d.stop_code AS stop,\n       d.stop_name AS name,\n       sum(s.journeys) AS arrivals,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p50_live_delay_s))::numeric) AS median_delay_s,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p90_live_delay_s))::numeric) AS p90_delay_s\nFROM rt.stop_minute_stats AS s\nLEFT JOIN marts.dim_stops AS d USING (stop_id)\nWHERE s.window_start > now() - interval '15 minutes' AND s.p50_live_delay_s IS NOT NULL\nGROUP BY s.stop_id, 1, 2\nHAVING sum(s.journeys) >= $min_arrivals\nORDER BY median_delay_s DESC\nLIMIT 15"
         }
       ],
       "fieldConfig": {

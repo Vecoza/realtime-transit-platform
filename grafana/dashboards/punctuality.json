@@ -50,6 +50,86 @@
           "text": "All",
           "value": "$__all"
         }
+      },
+      {
+        "type": "custom",
+        "name": "min_trips",
+        "label": "Min expected trips",
+        "description": "Lines need at least this many expected trips to be ranked by completeness.",
+        "query": "1,3,5,10,20",
+        "current": {
+          "text": "5",
+          "value": "5"
+        },
+        "options": [
+          {
+            "text": "1",
+            "value": "1",
+            "selected": false
+          },
+          {
+            "text": "3",
+            "value": "3",
+            "selected": false
+          },
+          {
+            "text": "5",
+            "value": "5",
+            "selected": true
+          },
+          {
+            "text": "10",
+            "value": "10",
+            "selected": false
+          },
+          {
+            "text": "20",
+            "value": "20",
+            "selected": false
+          }
+        ],
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "type": "custom",
+        "name": "min_pairs",
+        "label": "Min observed pairs",
+        "description": "Line and stop pairs need at least this many observed pairs to be ranked by bunching.",
+        "query": "1,3,5,10,20",
+        "current": {
+          "text": "5",
+          "value": "5"
+        },
+        "options": [
+          {
+            "text": "1",
+            "value": "1",
+            "selected": false
+          },
+          {
+            "text": "3",
+            "value": "3",
+            "selected": false
+          },
+          {
+            "text": "5",
+            "value": "5",
+            "selected": true
+          },
+          {
+            "text": "10",
+            "value": "10",
+            "selected": false
+          },
+          {
+            "text": "20",
+            "value": "20",
+            "selected": false
+          }
+        ],
+        "multi": false,
+        "includeAll": false
       }
     ]
   },
@@ -588,7 +668,7 @@
       "id": 9,
       "type": "table",
       "title": "Bunching by line and stop",
-      "description": "Pairs of consecutive trips observed at a stop; bunched below half, a gap above one and a half times the scheduled headway.",
+      "description": "Pairs of consecutive trips observed at a stop; bunched below half, a gap above one and a half times the scheduled headway. Only lines and stops with at least the chosen number of observed pairs (default 5) are ranked.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -609,7 +689,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT route_short_name AS line, mode, direction_id AS direction, stop_code AS stop, stop_name AS name,\n       sum(observed_pairs) AS pairs, sum(bunched_pairs) AS bunched, sum(gap_pairs) AS gaps,\n       round(avg(avg_scheduled_headway_s)::numeric) AS scheduled_headway_s,\n       round(avg(avg_observed_headway_s)::numeric) AS observed_headway_s\nFROM marts.mart_bunching\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY 1, 2, 3, 4, 5\nHAVING sum(bunched_pairs) > 0\nORDER BY bunched DESC, pairs DESC\nLIMIT 50"
+          "rawSql": "SELECT route_short_name AS line, mode, direction_id AS direction, stop_code AS stop, stop_name AS name,\n       sum(observed_pairs) AS pairs, sum(bunched_pairs) AS bunched, sum(gap_pairs) AS gaps,\n       round(avg(avg_scheduled_headway_s)::numeric) AS scheduled_headway_s,\n       round(avg(avg_observed_headway_s)::numeric) AS observed_headway_s\nFROM marts.mart_bunching\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY 1, 2, 3, 4, 5\nHAVING sum(bunched_pairs) > 0 AND sum(observed_pairs) >= $min_pairs\nORDER BY bunched DESC, pairs DESC\nLIMIT 50"
         }
       ],
       "fieldConfig": {
@@ -709,7 +789,7 @@
       "id": 10,
       "type": "table",
       "title": "Data completeness by line",
-      "description": "",
+      "description": "Lines with at least the chosen number of expected trips (default 5), least complete first.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -730,7 +810,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT route_short_name AS line, mode, expected_trips, seen_trips, seen_share\nFROM marts.mart_data_completeness\nWHERE service_date = '$day' AND mode IN ($mode)\nORDER BY seen_share, expected_trips DESC\nLIMIT 50"
+          "rawSql": "SELECT route_short_name AS line, mode, expected_trips, seen_trips, seen_share\nFROM marts.mart_data_completeness\nWHERE service_date = '$day' AND mode IN ($mode) AND expected_trips >= $min_trips\nORDER BY seen_share, expected_trips DESC\nLIMIT 50"
         }
       ],
       "fieldConfig": {

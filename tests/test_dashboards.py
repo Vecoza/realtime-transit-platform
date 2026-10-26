@@ -29,6 +29,7 @@ MACROS = (
     (re.compile(r"\$__timeGroupAlias\(([^,]+), '1m'\)"), r"date_trunc('minute', \1) AS time"),
     (re.compile(r"\$day"), "2026-10-24"),
     (re.compile(r"\$mode"), "'bus', 'tram'"),
+    (re.compile(r"\$min_(arrivals|trips|pairs)"), "5"),
 )
 
 
@@ -37,7 +38,8 @@ def dashboard_queries() -> list[tuple[str, str]]:
     for path in sorted((GRAFANA / "dashboards").glob("*.json")):
         board = json.loads(path.read_text())
         for variable in board["templating"]["list"]:
-            queries.append((f"{path.stem}: ${variable['name']}", variable["query"]))
+            if variable["type"] == "query":
+                queries.append((f"{path.stem}: ${variable['name']}", variable["query"]))
         for panel in board["panels"]:
             for target in panel.get("targets", []):
                 queries.append((f"{path.stem}: {panel['title']}", target["rawSql"]))

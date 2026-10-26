@@ -23,7 +23,7 @@ The data arrives continuously, out of order and sometimes twice. The platform ha
 
 ## What the project builds
 
-**1. Timetable loader (batch).** Downloads HSL's timetable in GTFS format and loads it into PostgreSQL as a new version, in one transaction that switches the current version only when every file has loaded and validated. Every event is matched against the version that was valid on its day, and scheduled times past midnight and on daylight saving days are converted to UTC as the GTFS reference defines them. The full timetable, 8.4 million scheduled stop times, loads in under three minutes.
+**1. Timetable loader (batch).** Downloads HSL's timetable in GTFS format and loads it into PostgreSQL as a new version, in one transaction that switches the current version only when every file has loaded and validated. Every event is matched against the version that was valid on its day, and scheduled times past midnight and on daylight saving days are converted to UTC as the GTFS reference defines them. The full timetable, 8.8 million scheduled stop times, loads in 118 seconds.
 
 **2. Stream producer.** Subscribes to HSL's MQTT feed and publishes every message to a Kafka-compatible stream (Redpanda), keyed by vehicle so that each vehicle's events stay in order. It can record the feed to files and replay a recording at any speed, so development, tests and benchmarks never depend on the live feed, and a replay always produces exactly the same topic contents.
 
@@ -68,15 +68,15 @@ The numbers below come from recordings of the real HSL feed, replayed through th
 
 | | |
 |---|---|
-| **Weekday peak** (Mon 26 Oct, 07:30–08:30) | 5,640,116 messages, 1,567 per second on average, 3,643 in the busiest second, 1,370 vehicles. Replayed at its original pace, the sink and the aggregator kept up with a lag below 1,300 messages, under a second of the feed |
-| **Throughput, one process each** | producer 26,751–28,706 messages/s · sink **7,473 messages/s** · aggregator **12,665 messages/s**, against 1,567 at the peak |
+| **Weekday peak** (Mon 26 Oct, 07:30–08:30) | 5,640,116 messages, 1,567 per second on average, 3,643 in the busiest second, 1,370 vehicles. Replayed at its original pace, the sink and the aggregator kept up with a lag below 1,300 messages, under a second of the feed, while the machine ran at full speed |
+| **Throughput, one process each** | producer (replay) 26,751–28,706 messages/s · sink **7,473 messages/s** · aggregator **12,665 messages/s**, against 1,567 at the peak |
 | **Latency, live** | event to stored row: p50 0.52 s, p95 1.11 s, p99 1.93 s. A minute's statistics appear 10.5 s after it ends (p95 13.4 s) |
 | **Duplicates** | 28.1% of messages on a Saturday afternoon (a tram position arrives about four times), 20.9% at the weekday peak; none is stored or counted twice |
 | **Timetable match** | 99.8% of stored events matched a scheduled trip |
 | **Lateness** | 96.8% of messages arrive within 2 s and 99.6% within 10 s, so a minute waits 10 s; 0.14% of events then correct a published minute and 0.13% arrive after the ten-minute horizon |
 | **Correctness** | after `kill -9` twice during a replay, 8,951 of 8,951 line minutes and 13,179 of 13,179 stop minutes equal a batch recomputation in SQL |
 | **Restarts** | sink back to work 0.9 s after `kill -9` with static group membership (45.2 s with dynamic); aggregator rebuilds 470,000 events of open minutes from stored rows in 2.2–2.4 s |
-| **Storage** | a stored position takes 293 bytes in PostgreSQL; a day of positions is 7 times smaller in Parquet, a timetable version 88 times (1,508 MB to 17 MB); timetable load 172.6 s |
+| **Storage** | a stored position takes 293 bytes in PostgreSQL; a day of positions is 7 times smaller in Parquet, a timetable version 88 times (1,508 MB to 17 MB); a full timetable load 118 s |
 | **Plausibility** | the platform's measured delay and HSL's live estimate give the same late or not-late verdict for 99.6% of 14,009 departures |
 | **Tests** | 182 pytest tests (unit tests and integration tests against PostgreSQL and Redpanda, including crash and restart cases) and 15 dbt models with 38 data tests, all run in CI without the live feed |
 
@@ -84,7 +84,7 @@ The numbers below come from recordings of the real HSL feed, replayed through th
 
 ## Key design decisions
 
-- **At-least-once delivery with idempotent writes.** Exactly-once across Kafka and PostgreSQL would need a two-phase commit. Instead every stored row is keyed by vehicle, event time and a hash of the payload, and offsets are committed only after the database transaction, so a message consumed twice is stored once.
+- **No distributed transaction.** The sink consumes at least once and writes idempotently: every stored row is keyed by vehicle, event time and a hash of the payload, and offsets are committed only after the database transaction, so a message consumed twice is stored once. The aggregator stores its offsets in PostgreSQL in the same transaction as its results. Neither needs a transaction spanning Kafka and the database.
 - **Event time, not processing time.** Statistics are grouped by when the vehicle reported, closed by a watermark, and corrected by late messages within a horizon. The waiting time and the horizon were chosen from the measured lateness of the feed, not guessed.
 - **The aggregator keeps its own offsets.** Its Kafka positions and watermark are written to PostgreSQL in the same transaction as the minutes they produced, and open minutes are rebuilt from the stored events. A crash at any point gives the same results as no crash.
 - **Two delays, kept apart.** HSL's live estimate is used for the live view, the platform's own measurement against the timetable for punctuality, and the dashboards label which one they show.
@@ -95,7 +95,7 @@ The numbers below come from recordings of the real HSL feed, replayed through th
 
 ## Lessons learned
 
-- **Load first, index later.** Inserting 8.4 million stop times into a partition with its primary key and foreign keys in place took 2,080 seconds. Loading into a plain table and attaching it as a partition, which builds the index in one pass and checks each foreign key with one query, takes 172.6 seconds for the whole timetable.
+- **Load first, index later.** Inserting 8.4 million stop times into a partition with its primary key and foreign keys in place took 2,080 seconds. Loading into a plain table and attaching it as a partition, which builds the index in one pass and checks each foreign key with one query, cut the whole load to 172.6 seconds in the same comparison; the latest full load took 118 seconds.
 - **Measure before optimising.** The first sink stored 3,885 messages per second. `EXPLAIN ANALYZE` showed half of every insert spent looking up the timetable version once per row, because PostgreSQL had inlined the lookup into the projection. Materialising it, and dropping copies before validation, brought the sink to 7,473 messages per second.
 - **State and offsets belong in one transaction.** The aggregator was killed with `kill -9` at chosen points of a replay, and its results still matched a batch recomputation exactly, because its offsets and watermark commit together with the minutes they produced.
 - **Let the data choose the parameters.** 99.6% of messages arrive within 10 seconds, and waiting two minutes instead would have delayed every result by 110 seconds to catch only 0.22% more. Most late data is not network delay at all but vehicles sending a buffered backlog after losing their connection.

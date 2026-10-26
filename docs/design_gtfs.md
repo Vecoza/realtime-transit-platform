@@ -93,6 +93,8 @@ PostgreSQL 16 in Docker Desktop on a MacBook (default server settings), feed of 
 | Whole load, including service dates and `ANALYZE` | **2,080.0 s** | **172.6 s** |
 | Reload of the same zip (checksum match) | | 0.98 s |
 
+These two runs were measured back to back to compare the strategies. The latest full load, of the feed of 24 October 2026 with 8.8 million stop times, took 118 seconds ([deployment.md](deployment.md#tested-from-a-clean-checkout)); that is the load time quoted elsewhere.
+
 The download itself takes about 5 seconds. `shapes` and `trips` are now the next largest cost at 55 seconds together, again mostly per-row foreign key checks. They could use the same staging pattern if load time ever matters, since the feed is loaded once a day.
 
 The staging time of the second run is derived from the total minus the logged durations of the other steps.

@@ -29,7 +29,7 @@ MACROS = (
     (re.compile(r"\$__timeGroupAlias\(([^,]+), '1m'\)"), r"date_trunc('minute', \1) AS time"),
     (re.compile(r"\$day"), "2026-10-24"),
     (re.compile(r"\$mode"), "'bus', 'tram'"),
-    (re.compile(r"\$min_(arrivals|trips|pairs)"), "5"),
+    (re.compile(r"\$min_(journeys|arrivals|trips|pairs)"), "5"),
 )
 
 

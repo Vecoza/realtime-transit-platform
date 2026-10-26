@@ -195,6 +195,9 @@ def test_arrivals_count_towards_their_stop() -> None:
 
 def test_vehicle_silent_for_two_minutes_of_event_time_becomes_stale_and_returns() -> None:
     windows, _ = aggregator()
+    journey = journey_of(event(0))
+    assert journey is not None
+    windows.set_trip_ends({journey: T0 + timedelta(hours=1)})
     windows.add(event(0), 0)
     windows.add(event(5, vehicle="00650"), 0)
     windows.advance()
@@ -257,6 +260,21 @@ def test_vehicle_silent_before_its_trip_starts_is_waiting_then_stale() -> None:
     stale = windows.advance()
     assert [v.status for v in stale.vehicles if v.vehicle_number == 649] == ["stale"]
     assert stale.stale == 1
+
+
+def test_silent_vehicle_without_a_timetable_trip_is_unmatched_not_stale() -> None:
+    windows, _ = aggregator()
+    journey = journey_of(event(0))
+    assert journey is not None
+    windows.set_trip_ends({journey: None})
+    windows.add(event(0), 0)
+
+    windows.add(event(125, vehicle="00650"), 0)
+    emission = windows.advance()
+
+    assert (emission.stale, emission.unmatched) == (0, 1)
+    assert [v.status for v in emission.vehicles if v.vehicle_number == 649] == ["unmatched"]
+    assert 649 not in {v.vehicle_number for v in windows.vehicles.values()}
 
 
 def test_vehicle_silent_after_its_trip_is_planned_to_end_is_finished() -> None:

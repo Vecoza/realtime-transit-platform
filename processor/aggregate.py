@@ -485,11 +485,12 @@ class EventTimeAggregator:
             INSERT INTO meta.aggregator_metrics (
                 group_id, messages, invalid, copies, duplicates, applied, late, dropped,
                 no_window, windows_emitted, windows_corrected, vehicles_stale,
-                vehicles_finished, open_windows, retained_events, idle_partitions, watermark,
-                max_event_time, consumer_lag, poll_ms, process_ms, db_ms
+                vehicles_finished, vehicles_unmatched, open_windows, retained_events,
+                idle_partitions, watermark, max_event_time, consumer_lag, poll_ms, process_ms,
+                db_ms
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s, %s)
             """,
             (
                 self.settings.group_id,
@@ -505,6 +506,7 @@ class EventTimeAggregator:
                 corrected,
                 emission.stale,
                 emission.finished,
+                emission.unmatched,
                 self.windows.open_windows(),
                 self.windows.retained_events(),
                 len(self.windows.watermark.idle()),
@@ -671,8 +673,7 @@ def rebuild(
 
     columns = ", ".join(VEHICLE_COLUMNS)
     for row in conn.execute(
-        f"SELECT {columns} FROM rt.vehicle_status"
-        " WHERE status IN ('active', 'waiting') OR (status = 'stale' AND planned_end IS NOT NULL)"
+        f"SELECT {columns} FROM rt.vehicle_status WHERE status IN ('active', 'waiting', 'stale')"
     ):
         windows.restore_vehicle(VehicleState(**dict(zip(VEHICLE_COLUMNS, row, strict=True))))
     logger.info(

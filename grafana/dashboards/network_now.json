@@ -670,7 +670,7 @@
       "id": 10,
       "type": "table",
       "title": "Stale vehicles: silent while their trip is planned to run",
-      "description": "Vehicles that stopped reporting for two minutes of event time after their trip's planned start and before its planned end, in the last hour. Vehicles silent before the start are waiting, those past the end finished; neither is shown. A trip missing from the timetable has no planned end; such a vehicle stays stale and drops off after an hour.",
+      "description": "Vehicles that stopped reporting for two minutes of event time after their trip's planned start and before its planned end, in the last hour. Vehicles silent before the start are waiting, those past the end finished; neither is shown. Vehicles on a journey without a timetable trip have no plan to compare with and are unmatched, not stale.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"

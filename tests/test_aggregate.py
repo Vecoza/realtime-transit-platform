@@ -310,13 +310,14 @@ def assert_matches_batch(database: DatabaseSettings, group_id: str) -> dict[str,
         outcomes = dict(
             conn.execute("SELECT outcome, count(*) FROM rt.late_events GROUP BY 1").fetchall()
         )
-        stale, lag_recorded = conn.execute(
-            "SELECT coalesce(sum(vehicles_stale), 0), count(consumer_lag)"
+        # Without a timetable in this test, every vehicle that falls silent is unmatched.
+        silent, lag_recorded = conn.execute(
+            "SELECT coalesce(sum(vehicles_stale + vehicles_unmatched), 0), count(consumer_lag)"
             " FROM meta.aggregator_metrics WHERE group_id = %s",
             (group_id,),
         ).fetchone()
         windows = conn.execute("SELECT count(*) FROM rt.route_minute_stats").fetchone()[0]
-    return {**outcomes, "stale": stale, "route_windows": windows, "lag_recorded": lag_recorded}
+    return {**outcomes, "silent": silent, "route_windows": windows, "lag_recorded": lag_recorded}
 
 
 def run_live(harness: Harness, run: AggregatorRun, chunks: int | None = None) -> None:
@@ -337,7 +338,7 @@ def test_streaming_aggregates_equal_a_batch_recomputation(harness: Harness) -> N
 
     assert summary["corrected"] > 0
     assert summary["dropped"] > 0
-    assert summary["stale"] >= 1
+    assert summary["silent"] >= 1
     assert summary["route_windows"] == 6 * 5
     assert summary["lag_recorded"] > 0
 

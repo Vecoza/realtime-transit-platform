@@ -13,7 +13,8 @@ Everything here is in memory and free of I/O, so the rules can be tested on thei
   is forgotten and events for it are dropped.
 - A vehicle on a trip that has sent nothing for ``stale_after`` of event time is waiting
   before its trip's planned start, stale while the trip is planned to run, and finished once
-  the trip's planned end has passed.
+  the trip's planned end has passed. Without a timetable trip there is no plan to compare
+  with, and the silent vehicle is unmatched.
 - A vehicle still reporting a journey whose planned end passed more than ``suspect_after``
   ago is a suspect sign-on: its position counts, its delay does not.
 - Delay figures are per journey: each journey's median delay in the minute counts once, so
@@ -161,6 +162,7 @@ class Emission:
     stale: int = 0
     finished: int = 0
     waiting: int = 0
+    unmatched: int = 0
 
 
 def event_key(operator_id: int, vehicle_number: int, payload_hash: bytes) -> bytes:
@@ -414,6 +416,8 @@ class WindowAggregator:
                 emission.stale += 1
             elif status == "waiting":
                 emission.waiting += 1
+            elif status == "unmatched":
+                emission.unmatched += 1
             else:
                 emission.finished += 1
         return self._vehicles_into(emission)
@@ -421,11 +425,13 @@ class WindowAggregator:
     def _silent_status(self, vehicle: VehicleState, watermark: datetime) -> str:
         """Waiting before the trip's start, stale while it is planned to run, finished after.
 
-        A trip missing from the timetable has no planned end and stays stale once started.
+        A journey without a timetable trip has no planned end: its silent vehicle is unmatched.
         """
         if vehicle.route_id is None or watermark < vehicle.last_tst + self.rules.stale_after:
             return vehicle.status
-        if vehicle.planned_end is not None and watermark >= vehicle.planned_end:
+        if vehicle.planned_end is None:
+            return "unmatched"
+        if watermark >= vehicle.planned_end:
             return "finished"
         if vehicle.planned_start is not None and watermark < vehicle.planned_start:
             return "waiting"
@@ -497,8 +503,6 @@ class WindowAggregator:
         emission.vehicles = [self.vehicles[vid] for vid in sorted(self.changed_vehicles)]
         self.changed_vehicles.clear()
         for vehicle in emission.vehicles:
-            if vehicle.status == "finished" or (
-                vehicle.status == "stale" and vehicle.planned_end is None
-            ):
+            if vehicle.status in ("finished", "unmatched"):
                 del self.vehicles[vehicle_id(vehicle.operator_id, vehicle.vehicle_number)]
         return emission

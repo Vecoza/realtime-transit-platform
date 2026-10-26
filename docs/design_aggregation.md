@@ -6,7 +6,7 @@ The aggregator is the consumer group `aggregator` on `hfp.raw`. It reads the sam
 |---|---|---|
 | `rt.route_minute_stats` | route, direction, minute | vehicles, positions, live delay samples, journeys, and the average, median and p90 live delay over journeys |
 | `rt.stop_minute_stats` | stop, minute | arrivals, live delay samples, journeys, and the average, median and p90 live delay over journeys |
-| `rt.vehicle_status` | vehicle | last event, position, journey with its planned start and end; `active`, `waiting`, `stale` or `finished`; whether it is a suspect sign-on |
+| `rt.vehicle_status` | vehicle | last event, position, journey with its planned start and end; `active`, `waiting`, `stale`, `finished` or `unmatched`; whether it is a suspect sign-on |
 | `rt.late_events` | late event | the window it belonged to, the watermark when it arrived, `corrected` or `dropped` |
 
 Every window row also carries `late_events`, `revision`, `first_emitted_at` and `emitted_at`.
@@ -98,7 +98,7 @@ Going silent means two different things. A vehicle that stops sending in the mid
 - **`stale`**: silent after the planned start while the planned end is still ahead of the watermark. The vehicle should be running and is not reporting.
 - **`finished`**: silent after the planned end, or still silent when the watermark reaches it. The vehicle is then forgotten.
 
-The planned end is looked up in the timetable once per journey, the first time a batch contains it, with the same matching as the sink (route, direction, operating day and start in the feed valid on that day), and kept on the vehicle row. A journey without a timetable trip has no planned end; its vehicle is marked stale and forgotten, as it cannot be told apart. After a restart, active and waiting vehicles and stale vehicles with a planned end are read back, so a waiting vehicle still turns stale and a stale one finished.
+The planned end is looked up in the timetable once per journey, the first time a batch contains it, with the same matching as the sink (route, direction, operating day and start in the feed valid on that day), and kept on the vehicle row. A journey without a timetable trip has neither a planned start the timetable confirms nor a planned end, so there is nothing to compare its silence with: the vehicle becomes **`unmatched`** and is forgotten. On the first version such vehicles were stale and filled the stale table, for example a tram on HFP route `100HG3`, which the timetable does not contain. After a restart, active and waiting vehicles and stale vehicles with a planned end are read back, so a waiting vehicle still turns stale and a stale one finished.
 
 ## Suspect sign-ons
 

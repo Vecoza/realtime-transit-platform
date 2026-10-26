@@ -26,7 +26,6 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import NamedTuple
 
 import psycopg
 from confluent_kafka import (
@@ -174,7 +173,7 @@ COUNTED_JOIN = """
 REBUILD_POSITIONS_SQL = f"""
     SELECT route_id, direction_id, date_trunc('minute', tst, 'UTC'),
            operator_id, vehicle_number, payload_hash, live_delay_s,
-           oday, start_offset_seconds, tst
+           route_id, direction_id, oday, start_offset_seconds, tst
     FROM rt.vehicle_positions AS e
     {COUNTED_JOIN}
     WHERE tst >= %s AND route_id IS NOT NULL AND direction_id IS NOT NULL
@@ -607,37 +606,34 @@ def rebuild(
     started = time.perf_counter()
     params = (list(consumed), list(consumed.values()), since)
 
-    stored: list[tuple[WindowKey, StoredEvent]] = []
-    for row in conn.execute(REBUILD_POSITIONS_SQL, params):
-        route_id, direction_id, start, *ids, oday, start_offset, tst = row
-        window = RouteWindow(route_id, direction_id, start.astimezone(UTC))
-        stored.append(
-            (
-                window,
-                StoredEvent(*ids, stored_journey(route_id, direction_id, oday, start_offset), tst),
-            )
-        )
-    for row in conn.execute(REBUILD_ARRIVALS_SQL, params):
-        stop_id, start, *ids, route_id, direction_id, oday, start_offset, tst = row
-        window = StopWindow(stop_id, start.astimezone(UTC))
-        stored.append(
-            (
-                window,
-                StoredEvent(*ids, stored_journey(route_id, direction_id, oday, start_offset), tst),
-            )
-        )
-    journeys = {event.journey for _, event in stored if event.journey is not None}
+    minutes: dict[datetime, datetime] = {}
+
+    def minute(start: datetime) -> datetime:
+        return minutes.setdefault(start, start.astimezone(UTC))
+
+    # Each stored event: operator, vehicle, payload hash, delay, its journey's four parts, tst.
+    stored: list[tuple[WindowKey, tuple]] = [
+        (RouteWindow(route_id, direction_id, minute(start)), event)
+        for route_id, direction_id, start, *event in conn.execute(REBUILD_POSITIONS_SQL, params)
+    ]
+    stored += [
+        (StopWindow(stop_id, minute(start)), event)
+        for stop_id, start, *event in conn.execute(REBUILD_ARRIVALS_SQL, params)
+    ]
+    journeys = {Journey(*event[4:8]) for _, event in stored if None not in event[4:8]}
     missing = {journey for journey in journeys if journey not in windows.trip_ends}
     if missing:
         windows.set_trip_ends(trip_ends(conn, missing))
     contents: dict[WindowKey, dict[bytes, Counted]] = {}
     for window, event in stored:
-        key = event_key(event.operator_id, event.vehicle_number, event.payload_hash)
-        contents.setdefault(window, {})[key] = windows.counted(
-            vehicle_id(event.operator_id, event.vehicle_number),
-            event.journey,
-            event.tst.astimezone(UTC),
-            event.live_delay_s,
+        operator_id, vehicle_number, payload_hash, live_delay_s, *parts, tst = event
+        contents.setdefault(window, {})[event_key(operator_id, vehicle_number, payload_hash)] = (
+            windows.counted(
+                vehicle_id(operator_id, vehicle_number),
+                None if None in parts else Journey(*parts),
+                tst,
+                live_delay_s,
+            )
         )
 
     late: dict[WindowKey, set[bytes]] = {}
@@ -694,23 +690,6 @@ def trip_ends(conn: psycopg.Connection, journeys: set[Journey]) -> dict[Journey,
     params = [[getattr(j, name) for j in journeys] for name in Journey._fields]
     found = {Journey(*row[:4]): row[4] for row in conn.execute(TRIP_ENDS_SQL, params)}
     return {journey: found.get(journey) for journey in journeys}
-
-
-class StoredEvent(NamedTuple):
-    operator_id: int
-    vehicle_number: int
-    payload_hash: bytes
-    live_delay_s: int | None
-    journey: Journey | None
-    tst: datetime
-
-
-def stored_journey(
-    route_id: str | None, direction_id: int | None, oday: date | None, start_offset: int | None
-) -> Journey | None:
-    if None in (route_id, direction_id, oday, start_offset):
-        return None
-    return Journey(route_id, direction_id, oday, start_offset)
 
 
 def kafka_storage_offsets(

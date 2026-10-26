@@ -23,7 +23,8 @@ A test runs every query of every dashboard, template variable and alert rule as 
 - a map of every vehicle that reported in the last 60 seconds (`rt.vehicle_status`), on OpenStreetMap;
 - lines and stops ordered by median delay over the last 10 and 15 minutes, with the p90 next to it, from the per-minute windows;
 - median delay by mode over time;
-- stale vehicles: on a trip that is still planned to run and silent for two minutes. Vehicles whose trip has ended are `finished` and not shown.
+- stale vehicles: on a trip that is still planned to run and silent for two minutes. Vehicles whose trip has ended are `finished` and not shown;
+- suspect sign-ons, counted and listed: vehicles still reporting a journey that was planned to end more than 15 minutes earlier. Their delays are left out of every ranking (see [design_aggregation.md](design_aggregation.md#suspect-sign-ons)).
 
 All delays here are labelled **live delay, HSL estimate**: the value HSL sends in every message, which is all a live view can use. They are medians and p90s, never averages. Each minute window stores the exact median and p90 of its events; a panel covering several minutes shows the middle value of those per-minute figures, and the network and mode figures are the median over the lines' medians. A single vehicle reporting hours of delay therefore cannot move a line, let alone the network.
 

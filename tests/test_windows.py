@@ -237,6 +237,35 @@ def test_vehicle_silent_after_its_trip_is_planned_to_end_is_finished() -> None:
     assert [v.status for v in emission.vehicles if v.vehicle_number == 649] == ["finished"]
 
 
+def test_vehicle_on_a_journey_long_past_its_end_is_suspect_and_its_delay_not_counted() -> None:
+    windows, _ = aggregator()
+    journey = journey_of(event(0))
+    assert journey is not None
+    windows.set_trip_ends({journey: T0 - timedelta(minutes=16)})
+    windows.add(event(10, dl=-3600), 0)
+    windows.add(event(20, vehicle="00650", start="05:52", dl=-60), 0)
+    windows.add(event(75, vehicle="00650", start="05:52"), 0)
+
+    emission = windows.advance()
+
+    (minute,) = emission.routes
+    assert (minute.vehicles, minute.positions, minute.live_delay_samples) == (2, 2, 1)
+    assert minute.p50_live_delay_s == 60.0
+    assert [(v.vehicle_number, v.suspect) for v in emission.vehicles] == [(649, True), (650, False)]
+
+
+def test_vehicle_within_the_suspect_margin_is_counted() -> None:
+    windows, _ = aggregator()
+    journey = journey_of(event(0))
+    assert journey is not None
+    windows.set_trip_ends({journey: T0 - timedelta(minutes=14)})
+    windows.add(event(10, dl=-600), 0)
+    windows.add(event(75), 0)
+
+    (minute,) = windows.advance().routes
+    assert (minute.live_delay_samples, minute.p50_live_delay_s) == (1, 600.0)
+
+
 @pytest.mark.parametrize(
     ("values", "expected"),
     [([], None), ([7], 7.0), ([1, 2], 1.9), ([0, 10, 20, 30, 40], 36.0), ([5, 5, 9, 100], 72.7)],

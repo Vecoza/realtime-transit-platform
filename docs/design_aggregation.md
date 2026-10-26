@@ -6,7 +6,7 @@ The aggregator is the consumer group `aggregator` on `hfp.raw`. It reads the sam
 |---|---|---|
 | `rt.route_minute_stats` | route, direction, minute | vehicles, positions, live delay samples, average, median and p90 live delay |
 | `rt.stop_minute_stats` | stop, minute | arrivals, live delay samples, average, median and p90 live delay |
-| `rt.vehicle_status` | vehicle | last event, position, journey and its planned end; `active`, `stale` or `finished` |
+| `rt.vehicle_status` | vehicle | last event, position, journey and its planned end; `active`, `stale` or `finished`; whether it is a suspect sign-on |
 | `rt.late_events` | late event | the window it belonged to, the watermark when it arrived, `corrected` or `dropped` |
 
 Every window row also carries `late_events`, `revision`, `first_emitted_at` and `emitted_at`.
@@ -96,6 +96,19 @@ Going silent means two different things. A vehicle that stops sending in the mid
 - **`finished`**: silent after the planned end, or still silent when the watermark reaches it. The vehicle is then forgotten.
 
 The planned end is looked up in the timetable once per journey, the first time a batch contains it, with the same matching as the sink (route, direction, operating day and start in the feed valid on that day), and kept on the vehicle row. A journey without a timetable trip has no planned end; its vehicle is marked stale and forgotten, as it cannot be told apart. After a restart, active vehicles and stale vehicles with a planned end are read back, so a stale vehicle still turns finished.
+
+## Suspect sign-ons
+
+A vehicle tells HFP which journey it runs, and that sign-on is sometimes wrong. On Monday 26 October between 16:58 and 17:13 Helsinki time, 13 of 1,279 vehicles were still reporting a journey whose planned end had passed more than 15 minutes earlier:
+
+- nine commuter train units, in four trains, on lines D, R and Z, running at full speed on a journey an hour or more older than the one they were actually running, and reporting between 67 and 116 minutes of delay;
+- a tram and three buses: one bus parked at its terminus and still signed on, the others running 15 to 33 minutes behind schedule near the end of their trip.
+
+Their reported delays were 91 minutes on average. Counted like any other vehicle, one such train put its line at the top of every delay ranking, and since coupled units report separately, even a median could not hold it back.
+
+**The rule.** An event is suspect when its journey matched a timetable trip and the event's `tst` is more than `AGGREGATOR_SUSPECT_AFTER_S` (900 s) after that trip's planned end. A suspect event still counts as a position and its vehicle stays on the map, but its delay is left out of every delay figure of the route and stop windows. `rt.vehicle_status.suspect` marks the vehicle as long as its latest event is suspect, and the live dashboard lists those vehicles in a table of their own.
+
+The rule cannot tell a wrong sign-on from a vehicle that really is more than 15 minutes late at the end of its trip; both are shown in the suspect table rather than ranked. Journeys without a timetable trip have no planned end and are never suspect.
 
 ## Scaling
 

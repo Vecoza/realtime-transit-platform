@@ -121,8 +121,8 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Network median delay, last 5 min (live delay, HSL estimate)",
-      "description": "The median over every line's per-minute median in the last five minutes: the delay of a typical line, which a few vehicles reporting extreme values cannot move.",
+      "title": "Suspect sign-ons",
+      "description": "Vehicles still reporting a journey whose planned end passed more than 15 minutes before their last report: usually a unit signed on to an old journey (coupled train units, a parked vehicle), sometimes a vehicle really running that late at the end of its trip.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -130,7 +130,58 @@
       "gridPos": {
         "x": 8,
         "y": 0,
-        "w": 8,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT count(*) AS suspect\nFROM rt.vehicle_status\nWHERE suspect AND last_tst > now() - interval '5 minutes'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Network median delay, last 5 min (live delay, HSL estimate)",
+      "description": "The median over every line's per-minute median in the last five minutes: the delay of a typical line, which a few vehicles reporting extreme values cannot move.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -179,7 +230,7 @@
       }
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "stat",
       "title": "Newest minute closed",
       "description": "How long ago the newest emitted per-minute window ended. A window closes once the watermark has passed its end plus ten seconds of allowed lateness; this grows when the aggregator falls behind.",
@@ -188,9 +239,9 @@
         "uid": "transit-postgres"
       },
       "gridPos": {
-        "x": 16,
+        "x": 18,
         "y": 0,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -222,7 +273,7 @@
       }
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "geomap",
       "title": "Vehicles reporting in the last 60 seconds",
       "description": "Last position of every vehicle that reported in the last 60 seconds.",
@@ -308,7 +359,7 @@
       }
     },
     {
-      "id": 6,
+      "id": 7,
       "type": "table",
       "title": "Lines by delay, last 10 minutes (live delay, HSL estimate)",
       "description": "Per line, from the per-minute event-time windows: HSL's own delay estimate carried in every message. Positive means late. Each minute stores the exact median and p90 of its positions; the table shows the middle value of those over the last ten minutes. A vehicle still signed on to an old journey (a parked train unit, for example) reports hours of delay, which moves an average but not the median.",
@@ -443,7 +494,7 @@
       }
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "timeseries",
       "title": "Median delay by mode (live delay, HSL estimate)",
       "description": "Per minute and mode, the median over the lines' per-minute medians.",
@@ -484,7 +535,7 @@
       }
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "table",
       "title": "Worst stops, last 15 minutes (live delay, HSL estimate)",
       "description": "Stops with at least three arrivals in the last 15 minutes, by the median delay vehicles arrived with. As for lines, each minute stores the exact median and p90, and the table shows the middle value of those over the last 15 minutes.",
@@ -557,7 +608,7 @@
       }
     },
     {
-      "id": 9,
+      "id": 10,
       "type": "table",
       "title": "Stale vehicles: silent while their trip is planned to run",
       "description": "Vehicles that stopped reporting for two minutes of event time while their trip is still planned to run, in the last hour. Vehicles past their trip's planned end are finished, not stale, and are not shown. A trip missing from the timetable has no planned end; such a vehicle stays stale and drops off after an hour.",
@@ -568,7 +619,7 @@
       "gridPos": {
         "x": 0,
         "y": 31,
-        "w": 24,
+        "w": 12,
         "h": 8
       },
       "targets": [
@@ -608,6 +659,71 @@
               {
                 "id": "displayName",
                 "value": "trip planned to end"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Suspect sign-ons: reporting a journey that should have ended",
+      "description": "Vehicles still reporting a journey whose planned end passed more than 15 minutes before their last report: usually a unit signed on to an old journey (coupled train units, a parked vehicle), sometimes a vehicle really running that late at the end of its trip. Their positions are on the map; their delays are left out of every delay figure on this dashboard.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "transit-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "transit-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT v.operator_id || '/' || v.vehicle_number AS vehicle,\n       coalesce(r.route_short_name, v.route_id) AS line,\n       v.transport_mode AS mode,\n       v.start_time AS trip_start,\n       v.planned_end,\n       round(extract(epoch FROM v.last_tst - v.planned_end) / 60) AS minutes_past_end\nFROM rt.vehicle_status AS v\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE v.suspect AND v.last_tst > now() - interval '5 minutes'\nORDER BY minutes_past_end DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "planned_end"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "trip planned to end"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "minutes_past_end"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "minutes past end"
               }
             ]
           }

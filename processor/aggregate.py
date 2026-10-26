@@ -26,6 +26,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from typing import NamedTuple
 
 import psycopg
 from confluent_kafka import (
@@ -44,6 +45,7 @@ from processor.sink import Hooks, consumer_lag, parse_envelope
 from processor.store import JOURNEY_MATCH_CTE, copy_rows, ensure_partitions, upcoming_days
 from processor.windows import (
     MINUTE,
+    Counted,
     Emission,
     Journey,
     LateEvent,
@@ -105,6 +107,7 @@ VEHICLE_COLUMNS = (
     "planned_end",
     "status",
     "silent_since",
+    "suspect",
 )
 LATE_COLUMNS = (
     "operator_id",
@@ -167,7 +170,8 @@ COUNTED_JOIN = """
 """
 REBUILD_POSITIONS_SQL = f"""
     SELECT route_id, direction_id, date_trunc('minute', tst, 'UTC'),
-           operator_id, vehicle_number, payload_hash, live_delay_s
+           operator_id, vehicle_number, payload_hash, live_delay_s,
+           oday, start_offset_seconds, tst
     FROM rt.vehicle_positions AS e
     {COUNTED_JOIN}
     WHERE tst >= %s AND route_id IS NOT NULL AND direction_id IS NOT NULL
@@ -175,7 +179,8 @@ REBUILD_POSITIONS_SQL = f"""
 """
 REBUILD_ARRIVALS_SQL = f"""
     SELECT stop_id, date_trunc('minute', tst, 'UTC'),
-           operator_id, vehicle_number, payload_hash, live_delay_s
+           operator_id, vehicle_number, payload_hash, live_delay_s,
+           route_id, direction_id, oday, start_offset_seconds, tst
     FROM rt.stop_events AS e
     {COUNTED_JOIN}
     WHERE event_type = 'arr' AND tst >= %s AND stop_id IS NOT NULL
@@ -251,6 +256,7 @@ class EventTimeAggregator:
             correction_horizon=timedelta(seconds=settings.correction_horizon_s),
             idle_timeout_s=settings.idle_timeout_s,
             stale_after=timedelta(seconds=settings.stale_after_s),
+            suspect_after=timedelta(seconds=settings.suspect_after_s),
         )
         self.windows = WindowAggregator(self.rules, Watermark(settings.idle_timeout_s, clock))
         self.known_days: set[date] = set(upcoming_days(datetime.now(UTC).date()))
@@ -598,15 +604,38 @@ def rebuild(
     started = time.perf_counter()
     params = (list(consumed), list(consumed.values()), since)
 
-    contents: dict[WindowKey, dict[bytes, tuple[int, int | None]]] = {}
+    stored: list[tuple[WindowKey, StoredEvent]] = []
     for row in conn.execute(REBUILD_POSITIONS_SQL, params):
-        route_id, direction_id, start, *event = row
-        add_stored_event(
-            contents, RouteWindow(route_id, direction_id, start.astimezone(UTC)), event
+        route_id, direction_id, start, *ids, oday, start_offset, tst = row
+        window = RouteWindow(route_id, direction_id, start.astimezone(UTC))
+        stored.append(
+            (
+                window,
+                StoredEvent(*ids, stored_journey(route_id, direction_id, oday, start_offset), tst),
+            )
         )
     for row in conn.execute(REBUILD_ARRIVALS_SQL, params):
-        stop_id, start, *event = row
-        add_stored_event(contents, StopWindow(stop_id, start.astimezone(UTC)), event)
+        stop_id, start, *ids, route_id, direction_id, oday, start_offset, tst = row
+        window = StopWindow(stop_id, start.astimezone(UTC))
+        stored.append(
+            (
+                window,
+                StoredEvent(*ids, stored_journey(route_id, direction_id, oday, start_offset), tst),
+            )
+        )
+    journeys = {event.journey for _, event in stored if event.journey is not None}
+    missing = {journey for journey in journeys if journey not in windows.trip_ends}
+    if missing:
+        windows.set_trip_ends(trip_ends(conn, missing))
+    contents: dict[WindowKey, dict[bytes, Counted]] = {}
+    for window, event in stored:
+        key = event_key(event.operator_id, event.vehicle_number, event.payload_hash)
+        contents.setdefault(window, {})[key] = windows.counted(
+            vehicle_id(event.operator_id, event.vehicle_number),
+            event.journey,
+            event.tst.astimezone(UTC),
+            event.live_delay_s,
+        )
 
     late: dict[WindowKey, set[bytes]] = {}
     for row in conn.execute(REBUILD_LATE_SQL, (since,)):
@@ -664,16 +693,21 @@ def trip_ends(conn: psycopg.Connection, journeys: set[Journey]) -> dict[Journey,
     return {journey: found.get(journey) for journey in journeys}
 
 
-def add_stored_event(
-    contents: dict[WindowKey, dict[bytes, tuple[int, int | None]]],
-    window: WindowKey,
-    event: list,
-) -> None:
-    operator_id, vehicle_number, payload_hash, live_delay_s = event
-    contents.setdefault(window, {})[event_key(operator_id, vehicle_number, payload_hash)] = (
-        vehicle_id(operator_id, vehicle_number),
-        live_delay_s,
-    )
+class StoredEvent(NamedTuple):
+    operator_id: int
+    vehicle_number: int
+    payload_hash: bytes
+    live_delay_s: int | None
+    journey: Journey | None
+    tst: datetime
+
+
+def stored_journey(
+    route_id: str | None, direction_id: int | None, oday: date | None, start_offset: int | None
+) -> Journey | None:
+    if None in (route_id, direction_id, oday, start_offset):
+        return None
+    return Journey(route_id, direction_id, oday, start_offset)
 
 
 def kafka_storage_offsets(

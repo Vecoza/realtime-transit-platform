@@ -13,6 +13,8 @@ Everything here is in memory and free of I/O, so the rules can be tested on thei
   is forgotten and events for it are dropped.
 - A vehicle on a trip that has sent nothing for ``stale_after`` of event time is stale while
   its trip is still planned to run, and finished once the trip's planned end has passed.
+- A vehicle still reporting a journey whose planned end passed more than ``suspect_after``
+  ago is a suspect sign-on: its position counts, its delay does not.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ class WindowRules:
     correction_horizon: timedelta = timedelta(minutes=10)
     idle_timeout_s: float = 30.0
     stale_after: timedelta = timedelta(minutes=2)
+    suspect_after: timedelta = timedelta(minutes=15)
 
 
 class RouteWindow(NamedTuple):
@@ -105,11 +108,19 @@ class LateEvent:
     outcome: str
 
 
+class Counted(NamedTuple):
+    """What a window keeps of an event; the delay is in seconds, positive when late."""
+
+    vehicle: int
+    live_delay_s: int | None
+    suspect: bool = False
+
+
 @dataclass
 class WindowState:
-    """Counted events by identity: vehicle and live delay (seconds, positive when late)."""
+    """Counted events by identity."""
 
-    events: dict[bytes, tuple[int, int | None]] = field(default_factory=dict)
+    events: dict[bytes, Counted] = field(default_factory=dict)
     late: set[bytes] = field(default_factory=set)
     emitted: bool = False
     changed: bool = True
@@ -131,6 +142,7 @@ class VehicleState:
     planned_end: datetime | None = None
     status: str = "active"
     silent_since: datetime | None = None
+    suspect: bool = False
 
 
 @dataclass
@@ -183,13 +195,22 @@ def percentile_cont(ordered: list[int], fraction: float) -> float | None:
     return ordered[lower] + (position - lower) * (ordered[upper] - ordered[lower])
 
 
+def delays_of(state: WindowState) -> list[int]:
+    """Live delays of the window in order, leaving out suspect sign-ons."""
+    return sorted(
+        e.live_delay_s
+        for e in state.events.values()
+        if e.live_delay_s is not None and not e.suspect
+    )
+
+
 def route_minute(window: RouteWindow, state: WindowState) -> RouteMinute:
-    delays = sorted(delay for _, delay in state.events.values() if delay is not None)
+    delays = delays_of(state)
     return RouteMinute(
         route_id=window.route_id,
         direction_id=window.direction_id,
         window_start=window.start,
-        vehicles=len({vehicle for vehicle, _ in state.events.values()}),
+        vehicles=len({e.vehicle for e in state.events.values()}),
         positions=len(state.events),
         live_delay_samples=len(delays),
         avg_live_delay_s=sum(delays) / len(delays) if delays else None,
@@ -200,7 +221,7 @@ def route_minute(window: RouteWindow, state: WindowState) -> RouteMinute:
 
 
 def stop_minute(window: StopWindow, state: WindowState) -> StopMinute:
-    delays = sorted(delay for _, delay in state.events.values() if delay is not None)
+    delays = delays_of(state)
     return StopMinute(
         stop_id=window.stop_id,
         window_start=window.start,
@@ -311,8 +332,10 @@ class WindowAggregator:
             return Outcome.DROPPED
         if state is None:
             state = self.windows[window] = WindowState()
-        state.events[key] = (
+        state.events[key] = self.counted(
             vehicle_id(event.operator_id, event.vehicle_number),
+            journey_of(event),
+            event.tst,
             event.live_delay_s,
         )
         state.changed = True
@@ -321,6 +344,16 @@ class WindowAggregator:
             self.late_events.append(LateEvent(event, window, watermark, "corrected"))
             return Outcome.LATE
         return Outcome.APPLIED
+
+    def counted(
+        self, vehicle: int, journey: Journey | None, tst: datetime, live_delay_s: int | None
+    ) -> Counted:
+        return Counted(vehicle, live_delay_s, self.is_suspect(journey, tst))
+
+    def is_suspect(self, journey: Journey | None, tst: datetime) -> bool:
+        """Still reporting a journey whose planned end is more than ``suspect_after`` past."""
+        end = None if journey is None else self.trip_ends.get(journey)
+        return end is not None and tst > end + self.rules.suspect_after
 
     def advance(self) -> Emission:
         """Move the watermark; emit closed windows and corrections, forget old windows."""
@@ -374,7 +407,7 @@ class WindowAggregator:
     def restore_window(
         self,
         window: WindowKey,
-        events: dict[bytes, tuple[int, int | None]],
+        events: dict[bytes, Counted],
         late: set[bytes],
         emitted: bool,
     ) -> None:
@@ -417,6 +450,7 @@ class WindowAggregator:
             vehicle.silent_since = None
         journey = journey_of(event)
         vehicle.planned_end = None if journey is None else self.trip_ends.get(journey)
+        vehicle.suspect = self.is_suspect(journey, event.tst)
         self.changed_vehicles.add(vid)
 
     def _vehicles_into(self, emission: Emission) -> Emission:

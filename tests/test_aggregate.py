@@ -37,37 +37,51 @@ HORIZON_S = 120
 IDLE_S = 5
 CHUNK = 125
 
-ROUTE_BATCH_SQL = """
+# A stored event is suspect when its matched trip planned to end more than 15 minutes earlier.
+SUSPECT_JOIN = """
+    LEFT JOIN LATERAL (
+        SELECT e.tst > gtfs.to_utc(e.oday, max(st.arrival_offset_seconds)) + interval '15 minutes'
+            AS suspect
+        FROM gtfs.stop_times AS st
+        WHERE st.feed_id = e.feed_id AND st.trip_id = e.trip_id
+    ) AS s ON true
+"""
+COUNTED_DELAY = "live_delay_s IS NOT NULL AND s.suspect IS NOT TRUE"
+DROPPED = """
+    NOT EXISTS (
+        SELECT 1 FROM rt.late_events AS l
+        WHERE l.outcome = 'dropped' AND l.event_type = '{event_type}'
+          AND (l.operator_id, l.vehicle_number, l.tst, l.payload_hash, l.received_at)
+            = (e.operator_id, e.vehicle_number, e.tst, e.payload_hash, e.received_at)
+    )
+"""
+ROUTE_BATCH_SQL = f"""
     SELECT route_id, direction_id, date_trunc('minute', tst, 'UTC') AS window_start,
            count(DISTINCT (operator_id, vehicle_number)), count(*),
-           count(live_delay_s),
-           avg(live_delay_s)::DOUBLE PRECISION,
-           percentile_cont(0.5) WITHIN GROUP (ORDER BY live_delay_s),
+           count(*) FILTER (WHERE {COUNTED_DELAY}),
+           (avg(live_delay_s) FILTER (WHERE {COUNTED_DELAY}))::DOUBLE PRECISION,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY live_delay_s)
+               FILTER (WHERE {COUNTED_DELAY}),
            percentile_cont(0.9) WITHIN GROUP (ORDER BY live_delay_s)
+               FILTER (WHERE {COUNTED_DELAY})
     FROM rt.vehicle_positions AS e
+    {SUSPECT_JOIN}
     WHERE route_id IS NOT NULL AND direction_id IS NOT NULL
-      AND NOT EXISTS (
-          SELECT 1 FROM rt.late_events AS l
-          WHERE l.outcome = 'dropped' AND l.event_type = 'vp'
-            AND (l.operator_id, l.vehicle_number, l.tst, l.payload_hash, l.received_at)
-              = (e.operator_id, e.vehicle_number, e.tst, e.payload_hash, e.received_at)
-      )
+      AND {DROPPED.format(event_type="vp")}
     GROUP BY 1, 2, 3
 """
-STOP_BATCH_SQL = """
+STOP_BATCH_SQL = f"""
     SELECT stop_id, date_trunc('minute', tst, 'UTC') AS window_start,
-           count(*), count(live_delay_s),
-           avg(live_delay_s)::DOUBLE PRECISION,
-           percentile_cont(0.5) WITHIN GROUP (ORDER BY live_delay_s),
+           count(*), count(*) FILTER (WHERE {COUNTED_DELAY}),
+           (avg(live_delay_s) FILTER (WHERE {COUNTED_DELAY}))::DOUBLE PRECISION,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY live_delay_s)
+               FILTER (WHERE {COUNTED_DELAY}),
            percentile_cont(0.9) WITHIN GROUP (ORDER BY live_delay_s)
+               FILTER (WHERE {COUNTED_DELAY})
     FROM rt.stop_events AS e
+    {SUSPECT_JOIN}
     WHERE event_type = 'arr' AND stop_id IS NOT NULL
-      AND NOT EXISTS (
-          SELECT 1 FROM rt.late_events AS l
-          WHERE l.outcome = 'dropped' AND l.event_type = 'arr'
-            AND (l.operator_id, l.vehicle_number, l.tst, l.payload_hash, l.received_at)
-              = (e.operator_id, e.vehicle_number, e.tst, e.payload_hash, e.received_at)
-      )
+      AND {DROPPED.format(event_type="arr")}
     GROUP BY 1, 2
 """
 ROUTE_STREAM_SQL = """

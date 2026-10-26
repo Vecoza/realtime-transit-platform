@@ -362,7 +362,7 @@
       "id": 7,
       "type": "table",
       "title": "Lines by delay, last 10 minutes (live delay, HSL estimate)",
-      "description": "Per line, from the per-minute event-time windows: HSL's own delay estimate carried in every message. Positive means late. Each minute stores the exact median and p90 of its positions; the table shows the middle value of those over the last ten minutes. A vehicle still signed on to an old journey (a parked train unit, for example) reports hours of delay, which moves an average but not the median.",
+      "description": "Per line, from the per-minute event-time windows: HSL's own delay estimate carried in every message. Positive means late. Each minute stores the exact median and p90 over the journeys on the line, each journey counted once with its own median delay, so the coupled units of one train count once; the table shows the middle value of those over the last ten minutes. Journeys is the most journeys seen in one minute. Suspect sign-ons are left out.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -383,7 +383,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT coalesce(r.route_short_name, s.route_id) AS line,\n       r.mode,\n       max(s.vehicles) AS vehicles,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p50_live_delay_s))::numeric) AS median_delay_s,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p90_live_delay_s))::numeric) AS p90_delay_s\nFROM rt.route_minute_stats AS s\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE s.window_start > now() - interval '10 minutes'\nGROUP BY 1, 2\nHAVING count(s.p50_live_delay_s) > 0\nORDER BY median_delay_s DESC\nLIMIT 25"
+          "rawSql": "SELECT coalesce(r.route_short_name, s.route_id) AS line,\n       r.mode,\n       max(s.minute_journeys) AS journeys,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p50_live_delay_s))::numeric) AS median_delay_s,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p90_live_delay_s))::numeric) AS p90_delay_s\nFROM (\n    SELECT *, sum(journeys) OVER (PARTITION BY route_id, window_start) AS minute_journeys\n    FROM rt.route_minute_stats\n    WHERE window_start > now() - interval '10 minutes'\n) AS s\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nGROUP BY 1, 2\nHAVING count(s.p50_live_delay_s) > 0\nORDER BY median_delay_s DESC\nLIMIT 25"
         }
       ],
       "fieldConfig": {
@@ -474,7 +474,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "vehicles"
+              "options": "journeys"
             },
             "properties": [
               {

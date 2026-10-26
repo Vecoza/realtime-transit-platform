@@ -15,6 +15,8 @@ Everything here is in memory and free of I/O, so the rules can be tested on thei
   its trip is still planned to run, and finished once the trip's planned end has passed.
 - A vehicle still reporting a journey whose planned end passed more than ``suspect_after``
   ago is a suspect sign-on: its position counts, its delay does not.
+- Delay figures are per journey: each journey's median delay in the minute counts once, so
+  the coupled units of one train, which report separately, do not count two or three times.
 """
 
 from __future__ import annotations
@@ -82,6 +84,7 @@ class RouteMinute:
     vehicles: int
     positions: int
     live_delay_samples: int
+    journeys: int
     avg_live_delay_s: float | None
     p50_live_delay_s: float | None
     p90_live_delay_s: float | None
@@ -94,6 +97,7 @@ class StopMinute:
     window_start: datetime
     arrivals: int
     live_delay_samples: int
+    journeys: int
     avg_live_delay_s: float | None
     p50_live_delay_s: float | None
     p90_live_delay_s: float | None
@@ -114,6 +118,7 @@ class Counted(NamedTuple):
     vehicle: int
     live_delay_s: int | None
     suspect: bool = False
+    journey: Journey | None = None
 
 
 @dataclass
@@ -185,7 +190,7 @@ def window_of(event: Event) -> WindowKey | None:
     return None
 
 
-def percentile_cont(ordered: list[int], fraction: float) -> float | None:
+def percentile_cont(ordered: list[int] | list[float], fraction: float) -> float | None:
     """Linear interpolation between the closest ranks, as PostgreSQL's percentile_cont."""
     if not ordered:
         return None
@@ -195,25 +200,42 @@ def percentile_cont(ordered: list[int], fraction: float) -> float | None:
     return ordered[lower] + (position - lower) * (ordered[upper] - ordered[lower])
 
 
-def delays_of(state: WindowState) -> list[int]:
-    """Live delays of the window in order, leaving out suspect sign-ons."""
-    return sorted(
-        e.live_delay_s
-        for e in state.events.values()
-        if e.live_delay_s is not None and not e.suspect
-    )
+@dataclass(frozen=True)
+class DelayFigures:
+    """Counted delays and, per journey, the median of each journey's delays in order."""
+
+    samples: int
+    journey_delays: list[float]
+
+    @property
+    def average(self) -> float | None:
+        delays = self.journey_delays
+        return sum(delays) / len(delays) if delays else None
+
+
+def delays_of(state: WindowState) -> DelayFigures:
+    """Leaves out suspect sign-ons; events without a journey stand for their vehicle."""
+    by_journey: dict[Journey | int, list[int]] = {}
+    for e in state.events.values():
+        if e.live_delay_s is not None and not e.suspect:
+            group = e.journey if e.journey is not None else e.vehicle
+            by_journey.setdefault(group, []).append(e.live_delay_s)
+    medians = sorted(percentile_cont(sorted(d), 0.5) for d in by_journey.values())
+    return DelayFigures(sum(len(d) for d in by_journey.values()), medians)
 
 
 def route_minute(window: RouteWindow, state: WindowState) -> RouteMinute:
-    delays = delays_of(state)
+    figures = delays_of(state)
+    delays = figures.journey_delays
     return RouteMinute(
         route_id=window.route_id,
         direction_id=window.direction_id,
         window_start=window.start,
         vehicles=len({e.vehicle for e in state.events.values()}),
         positions=len(state.events),
-        live_delay_samples=len(delays),
-        avg_live_delay_s=sum(delays) / len(delays) if delays else None,
+        live_delay_samples=figures.samples,
+        journeys=len(delays),
+        avg_live_delay_s=figures.average,
         p50_live_delay_s=percentile_cont(delays, 0.5),
         p90_live_delay_s=percentile_cont(delays, 0.9),
         late_events=len(state.late),
@@ -221,13 +243,15 @@ def route_minute(window: RouteWindow, state: WindowState) -> RouteMinute:
 
 
 def stop_minute(window: StopWindow, state: WindowState) -> StopMinute:
-    delays = delays_of(state)
+    figures = delays_of(state)
+    delays = figures.journey_delays
     return StopMinute(
         stop_id=window.stop_id,
         window_start=window.start,
         arrivals=len(state.events),
-        live_delay_samples=len(delays),
-        avg_live_delay_s=sum(delays) / len(delays) if delays else None,
+        live_delay_samples=figures.samples,
+        journeys=len(delays),
+        avg_live_delay_s=figures.average,
         p50_live_delay_s=percentile_cont(delays, 0.5),
         p90_live_delay_s=percentile_cont(delays, 0.9),
         late_events=len(state.late),
@@ -306,6 +330,7 @@ class WindowAggregator:
         self.changed_vehicles: set[int] = set()
         self.late_events: list[LateEvent] = []
         self.trip_ends: dict[Journey, datetime | None] = {}
+        self.journeys: dict[Journey, Journey] = {}
 
     def unknown_journeys(self, events: Iterable[Event]) -> set[Journey]:
         """Journeys whose planned end has not been looked up yet."""
@@ -348,7 +373,8 @@ class WindowAggregator:
     def counted(
         self, vehicle: int, journey: Journey | None, tst: datetime, live_delay_s: int | None
     ) -> Counted:
-        return Counted(vehicle, live_delay_s, self.is_suspect(journey, tst))
+        journey = None if journey is None else self.journeys.setdefault(journey, journey)
+        return Counted(vehicle, live_delay_s, self.is_suspect(journey, tst), journey)
 
     def is_suspect(self, journey: Journey | None, tst: datetime) -> bool:
         """Still reporting a journey whose planned end is more than ``suspect_after`` past."""

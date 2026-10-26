@@ -55,42 +55,76 @@ DROPPED = """
             = (e.operator_id, e.vehicle_number, e.tst, e.payload_hash, e.received_at)
     )
 """
-ROUTE_BATCH_SQL = f"""
-    SELECT route_id, direction_id, date_trunc('minute', tst, 'UTC') AS window_start,
-           count(DISTINCT (operator_id, vehicle_number)), count(*),
-           count(*) FILTER (WHERE {COUNTED_DELAY}),
-           (avg(live_delay_s) FILTER (WHERE {COUNTED_DELAY}))::DOUBLE PRECISION,
-           percentile_cont(0.5) WITHIN GROUP (ORDER BY live_delay_s)
-               FILTER (WHERE {COUNTED_DELAY}),
-           percentile_cont(0.9) WITHIN GROUP (ORDER BY live_delay_s)
-               FILTER (WHERE {COUNTED_DELAY})
-    FROM rt.vehicle_positions AS e
-    {SUSPECT_JOIN}
-    WHERE route_id IS NOT NULL AND direction_id IS NOT NULL
-      AND {DROPPED.format(event_type="vp")}
-    GROUP BY 1, 2, 3
+# Each journey's median delay in the minute counts once; events without a journey stand for
+# their vehicle.
+JOURNEY_KEY = """
+    CASE WHEN route_id IS NOT NULL AND direction_id IS NOT NULL AND oday IS NOT NULL
+              AND start_offset_seconds IS NOT NULL
+         THEN concat_ws('/', route_id, direction_id, oday, start_offset_seconds)
+         ELSE concat_ws('/', 'vehicle', operator_id, vehicle_number)
+    END
 """
+PER_JOURNEY = """
+    , journeys AS (
+        SELECT {key}, journey,
+               count(*) FILTER (WHERE counted) AS samples,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY live_delay_s)
+                   FILTER (WHERE counted) AS delay
+        FROM events
+        GROUP BY {key}, journey
+    ),
+    figures AS (
+        SELECT {key}, sum(samples)::INTEGER AS samples, count(delay)::INTEGER AS journeys,
+               avg(delay) AS avg_delay,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY delay) AS p50,
+               percentile_cont(0.9) WITHIN GROUP (ORDER BY delay) AS p90
+        FROM journeys
+        GROUP BY {key}
+    )
+"""
+ROUTE_KEY = "route_id, direction_id, window_start"
+ROUTE_BATCH_SQL = f"""
+    WITH events AS (
+        SELECT route_id, direction_id, date_trunc('minute', tst, 'UTC') AS window_start,
+               operator_id, vehicle_number, live_delay_s, {JOURNEY_KEY} AS journey,
+               {COUNTED_DELAY} AS counted
+        FROM rt.vehicle_positions AS e
+        {SUSPECT_JOIN}
+        WHERE route_id IS NOT NULL AND direction_id IS NOT NULL
+          AND {DROPPED.format(event_type="vp")}
+    )
+    {PER_JOURNEY.format(key=ROUTE_KEY)}
+    SELECT route_id, direction_id, window_start,
+           count(DISTINCT (operator_id, vehicle_number)), count(*),
+           f.samples, f.journeys, f.avg_delay, f.p50, f.p90
+    FROM events
+    JOIN figures AS f USING (route_id, direction_id, window_start)
+    GROUP BY route_id, direction_id, window_start, f.samples, f.journeys, f.avg_delay, f.p50, f.p90
+"""
+STOP_KEY = "stop_id, window_start"
 STOP_BATCH_SQL = f"""
-    SELECT stop_id, date_trunc('minute', tst, 'UTC') AS window_start,
-           count(*), count(*) FILTER (WHERE {COUNTED_DELAY}),
-           (avg(live_delay_s) FILTER (WHERE {COUNTED_DELAY}))::DOUBLE PRECISION,
-           percentile_cont(0.5) WITHIN GROUP (ORDER BY live_delay_s)
-               FILTER (WHERE {COUNTED_DELAY}),
-           percentile_cont(0.9) WITHIN GROUP (ORDER BY live_delay_s)
-               FILTER (WHERE {COUNTED_DELAY})
-    FROM rt.stop_events AS e
-    {SUSPECT_JOIN}
-    WHERE event_type = 'arr' AND stop_id IS NOT NULL
-      AND {DROPPED.format(event_type="arr")}
-    GROUP BY 1, 2
+    WITH events AS (
+        SELECT stop_id, date_trunc('minute', tst, 'UTC') AS window_start,
+               operator_id, vehicle_number, live_delay_s, {JOURNEY_KEY} AS journey,
+               {COUNTED_DELAY} AS counted
+        FROM rt.stop_events AS e
+        {SUSPECT_JOIN}
+        WHERE event_type = 'arr' AND stop_id IS NOT NULL
+          AND {DROPPED.format(event_type="arr")}
+    )
+    {PER_JOURNEY.format(key=STOP_KEY)}
+    SELECT stop_id, window_start, count(*), f.samples, f.journeys, f.avg_delay, f.p50, f.p90
+    FROM events
+    JOIN figures AS f USING (stop_id, window_start)
+    GROUP BY stop_id, window_start, f.samples, f.journeys, f.avg_delay, f.p50, f.p90
 """
 ROUTE_STREAM_SQL = """
     SELECT route_id, direction_id, window_start, vehicles, positions, live_delay_samples,
-           avg_live_delay_s, p50_live_delay_s, p90_live_delay_s
+           journeys, avg_live_delay_s, p50_live_delay_s, p90_live_delay_s
     FROM rt.route_minute_stats
 """
 STOP_STREAM_SQL = """
-    SELECT stop_id, window_start, arrivals, live_delay_samples, avg_live_delay_s,
+    SELECT stop_id, window_start, arrivals, live_delay_samples, journeys, avg_live_delay_s,
            p50_live_delay_s, p90_live_delay_s
     FROM rt.stop_minute_stats
 """

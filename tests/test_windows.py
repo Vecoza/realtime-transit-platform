@@ -68,7 +68,7 @@ def test_out_of_order_events_within_the_lateness_are_counted_on_time() -> None:
         windows.add(event(30, dl=-60), 0),
         windows.add(event(5, received=31, dl=-30), 0),
         windows.add(event(65, dl=0), 0),
-        windows.add(event(50, received=66, vehicle="00650", dl=-90), 0),
+        windows.add(event(50, received=66, vehicle="00650", start="05:52", dl=-90), 0),
     ]
     emission = windows.advance()
 
@@ -77,8 +77,23 @@ def test_out_of_order_events_within_the_lateness_are_counted_on_time() -> None:
     windows.add(event(71), 0)
     (minute,) = windows.advance().routes
     assert (minute.window_start, minute.vehicles, minute.positions) == (T0, 2, 3)
-    assert (minute.avg_live_delay_s, minute.p50_live_delay_s) == (60.0, 60.0)
-    assert (minute.p90_live_delay_s, minute.late_events) == (84.0, 0)
+    assert (minute.live_delay_samples, minute.journeys) == (3, 2)
+    assert (minute.avg_live_delay_s, minute.p50_live_delay_s) == (67.5, 67.5)
+    assert (minute.p90_live_delay_s, minute.late_events) == (85.5, 0)
+
+
+def test_coupled_units_on_one_journey_count_once() -> None:
+    windows, _ = aggregator()
+    for unit in ("06308", "06320", "06328"):
+        windows.add(event(10, vehicle=unit, dl=-2800), 0)
+    windows.add(event(20, vehicle="06100", start="05:52", dl=-60), 0)
+    windows.add(event(30, vehicle="06200", start="06:07", dl=-120), 0)
+    windows.add(event(75), 0)
+
+    (minute,) = windows.advance().routes
+
+    assert (minute.vehicles, minute.live_delay_samples, minute.journeys) == (5, 5, 3)
+    assert minute.p50_live_delay_s == 120.0
 
 
 def test_late_event_corrects_the_emitted_window_with_full_values() -> None:

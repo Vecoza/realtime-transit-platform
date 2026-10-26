@@ -28,21 +28,24 @@ RUN python -c "import tomllib; p = tomllib.load(open('pyproject.toml', 'rb'))['p
 print('\n'.join(p['dependencies'] + p['optional-dependencies']['analytics']))" > requirements.txt \
     && pip install --no-cache-dir -c constraints.txt -r requirements.txt \
     && rm requirements.txt
+# DuckDB's PostgreSQL extension, installed for the app user so that the jobs download nothing.
+USER app
+RUN python -c "import duckdb; duckdb.connect().install_extension('postgres')"
+USER root
+
 COPY src src
 COPY gtfs gtfs
 COPY producer producer
 COPY processor processor
 COPY archive archive
 COPY analytics analytics
-RUN pip install --no-cache-dir --no-deps .
+RUN pip install --no-cache-dir --no-deps --no-build-isolation .
 
 COPY alembic.ini ./
 COPY db db
 COPY --chown=app dbt dbt
 COPY docker/crontab crontab
 USER app
-# Extensions are installed here so that nothing is downloaded when the jobs run.
-RUN python -c "import duckdb; duckdb.connect().install_extension('postgres')"
 
 ENV TZ=UTC
 CMD ["supercronic", "-passthrough-logs", "/app/crontab"]

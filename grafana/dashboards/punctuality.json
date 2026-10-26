@@ -387,7 +387,7 @@
       "id": 7,
       "type": "trend",
       "title": "Average delay by hour (measured delay vs timetable)",
-      "description": "Average departure delay at timing points per local hour (0 to 23), positive when late.",
+      "description": "Average departure delay at timing points per local hour (0 to 23), positive when late. Hours without departures are left empty.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -408,7 +408,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT hour_local AS hour,\n       round((sum(avg_delay_s * departures) / nullif(sum(departures), 0))::numeric) AS avg_delay_s\nFROM marts.mart_on_time_performance\nWHERE service_date = '$day' AND mode IN ($mode)\nGROUP BY hour_local\nORDER BY hour_local"
+          "rawSql": "WITH by_hour AS (\n    SELECT hour_local,\n           round((sum(avg_delay_s * departures) / nullif(sum(departures), 0))::numeric) AS avg_delay_s\n    FROM marts.mart_on_time_performance\n    WHERE service_date = '$day' AND mode IN ($mode)\n    GROUP BY hour_local\n)\nSELECT hours.hour, by_hour.avg_delay_s\nFROM generate_series((SELECT min(hour_local) FROM by_hour), (SELECT max(hour_local) FROM by_hour)) AS hours (hour)\nLEFT JOIN by_hour ON by_hour.hour_local = hours.hour\nORDER BY hours.hour"
         }
       ],
       "fieldConfig": {
@@ -418,7 +418,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "showPoints": "always",
-            "pointSize": 5
+            "pointSize": 5,
+            "spanNulls": false
           }
         },
         "overrides": [

@@ -28,6 +28,8 @@ DEMO_FIXTURES := $(CURDIR)/tests/fixtures
 RECORDING ?= data/recordings
 DEMO_TIMETABLE = $(if $(FULL),,--file /app/fixtures/gtfs_saturday_routes)
 DEMO_REPLAY = $(if $(FULL),$(abspath $(RECORDING)),$(DEMO_FIXTURES)/hfp_saturday_routes.jsonl)
+# Mounted under its own name: the replayer recognises gzip files by their extension.
+DEMO_REPLAY_PATH = /app/replay/$(notdir $(DEMO_REPLAY))
 
 demo:  ## Run the platform offline on the recorded fixtures (FULL=1: real timetable and RECORDING)
 	@test -f .env || { cp .env.example .env; echo "created .env from .env.example"; }
@@ -37,8 +39,8 @@ demo:  ## Run the platform offline on the recorded fixtures (FULL=1: real timeta
 		"alembic upgrade head && python -m transit_platform.reader_role \
 		&& python -m gtfs.load $(DEMO_TIMETABLE) && python -m archive.lifecycle"
 	docker compose up -d sink aggregator grafana
-	docker compose run --rm --no-deps -v "$(DEMO_REPLAY):/app/replay:ro" producer \
-		python -m producer.replay /app/replay --speed 0
+	docker compose run --rm --no-deps -v "$(DEMO_REPLAY):$(DEMO_REPLAY_PATH):ro" producer \
+		python -m producer.replay $(DEMO_REPLAY_PATH) --speed 0
 	docker compose run --rm --no-deps sink python -m processor.wait
 	docker compose run --rm --no-deps scheduler sh -c \
 		"dbt build --project-dir dbt --profiles-dir dbt; python -m analytics.publish"

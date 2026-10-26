@@ -21,11 +21,11 @@ A test runs every query of every dashboard, template variable and alert rule as 
 **Network now** (refreshes every 30 seconds) is the live view, built from the aggregator's tables:
 
 - a map of every vehicle that reported in the last 60 seconds (`rt.vehicle_status`), on OpenStreetMap;
-- lines and stops ordered by delay over the last 10 and 15 minutes, from the per-minute windows;
-- average delay by mode over time;
+- lines and stops ordered by median delay over the last 10 and 15 minutes, with the p90 next to it, from the per-minute windows;
+- median delay by mode over time;
 - stale vehicles: on a trip that is still planned to run and silent for two minutes. Vehicles whose trip has ended are `finished` and not shown.
 
-All delays here are labelled **live delay, HSL estimate**: the value HSL sends in every message, which is all a live view can use.
+All delays here are labelled **live delay, HSL estimate**: the value HSL sends in every message, which is all a live view can use. They are medians and p90s, never averages. Each minute window stores the exact median and p90 of its events; a panel covering several minutes shows the middle value of those per-minute figures, and the network and mode figures are the median over the lines' medians. A single vehicle reporting hours of delay therefore cannot move a line, let alone the network.
 
 ![Punctuality](images/punctuality.png)
 
@@ -65,7 +65,7 @@ The lag rule is evaluated per consumer group, so the sink and the aggregator are
 The screenshots are from a live run on Sunday evening, 25 October, with the producer, sink and aggregator reading HSL's feed for about 25 minutes.
 
 - **A slow host shows up as lag.** Between 21:02 and 21:10 Helsinki time the development laptop was overloaded (load average up to 81, CPU limited to 74%). Under host throttling, decoding a batch of 5,000 messages took 3 seconds instead of 260 ms, and the sink fell up to 59,000 messages behind; these numbers describe the laptop and are not performance results. Once the load dropped it caught up in about a minute, at 85,000 messages that minute. The bump is visible in the lag and latency panels. The lag rule went to pending at 21:06:30 and back to normal at 21:10:30: four minutes above the threshold, one short of firing.
-- **One vehicle can dominate a line's live delay.** Commuter train line K led the list with an average of 24 minutes: one train unit stood still while still signed on to its 17:22 journey and reported 3.7 hours of delay. The panel's description says so, and the measured delay in the marts is not affected (it uses departures from stops).
+- **One vehicle can dominate a line's average.** Commuter train line K led the list with an average of 24 minutes: one train unit stood still while still signed on to its 17:22 journey and reported 3.7 hours of delay. This is why the live panels show the median and p90 instead of the average. The measured delay in the marts is not affected (it uses departures from stops). The median has a limit, seen on Monday 26 October at 17:00 Helsinki time: commuter trains often run as two coupled units, and both units of one line Z train were signed on to the journey an hour earlier while running at full speed. They reported 85 minutes of delay and made up half of the line's vehicles in that direction, so even the median put line Z near the top. Line D above it was a single train of three coupled units on the 16:05 journey, at full speed and reporting 47 minutes of delay, the only vehicles on the line at that moment. A median protects against one wrong vehicle, not against half of a line or a whole one; both cases are visible in the screenshot above.
 - **Trips missing from the timetable.** A tram on HFP route `100HG3`, which the timetable does not contain, has no planned end, so it cannot be told apart from a vehicle that stopped mid-trip. The stale panel shows such vehicles for an hour and then drops them.
 - **Map tiles.** CARTO's tiles, Grafana's default base map, now require an API key; the map uses OpenStreetMap's tiles, with their attribution.
 

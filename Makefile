@@ -1,4 +1,4 @@
-.PHONY: help install duckdb-extensions up down logs psql topics check migrate migrate-down \
+.PHONY: help install duckdb-extensions up platform down logs psql topics check migrate migrate-down \
 	migrate-status gtfs-load produce record replay process aggregate archive marts scheduler \
 	reader-role grafana lint format test test-unit test-db clean
 
@@ -16,8 +16,11 @@ install:  ## Install the package with dev dependencies at the pinned versions
 duckdb-extensions:  ## Install DuckDB's PostgreSQL extension once, so nothing downloads at run time
 	python -c "import duckdb; duckdb.connect().install_extension('postgres')"
 
-up:  ## Start PostgreSQL and Redpanda
-	docker compose up -d
+up:  ## Start PostgreSQL and Redpanda (for running the services on the host)
+	docker compose up -d postgres redpanda
+
+platform:  ## Build and start the whole platform in containers, as on a server
+	docker compose up -d --build
 
 down:  ## Stop containers
 	docker compose down
@@ -70,7 +73,7 @@ marts:  ## Build and test the dbt models in DuckDB, then publish the marts to Po
 	dbt build --project-dir dbt --profiles-dir dbt; status=$$?; python -m analytics.publish; exit $$status
 
 scheduler:  ## Build and start the scheduler container (GTFS refresh, archive, dbt)
-	docker compose --profile jobs up -d --build scheduler
+	docker compose up -d --build scheduler
 
 reader-role:  ## Set the password of the dashboards' read-only role (grafana_reader) from .env
 	python -m transit_platform.reader_role

@@ -43,6 +43,9 @@ Three Grafana dashboards, provisioned entirely from files, read PostgreSQL throu
 
 ![Network now](docs/images/network_now.png)
 
+**7. Deployment**
+The whole platform runs as one set of containers that starts from a clean checkout and a single environment file: the database, the event stream, the producer, both consumers, the scheduler and Grafana, each restarted automatically if it stops. A one-off step before them applies the database migrations, sets the dashboards' read-only password and loads the first timetable. No port is reachable from outside the host. See [docs/deployment.md](docs/deployment.md).
+
 ## Architecture
 
 ```
@@ -83,7 +86,7 @@ realtime-transit-platform/
 ├── analytics/              Publishing the analytical marts to PostgreSQL
 ├── dbt/                    Analytical models and tests
 ├── grafana/                Dashboards, data source and alert rules as code
-├── docker/                 Scheduled jobs image, database initialization
+├── docker/                 Application image for every service, scheduled jobs, database initialization
 ├── docs/                   Architecture and design notes
 └── tests/                  Python tests
 ```

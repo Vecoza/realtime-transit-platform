@@ -1,4 +1,5 @@
-# Batch jobs: GTFS refresh, storage lifecycle and dbt, run on a schedule by supercronic.
+# One image for every platform process: producer, sink, aggregator, the one-off init and the
+# scheduled batch jobs (GTFS refresh, storage lifecycle and dbt, run by supercronic).
 FROM python:3.11-slim-bookworm
 
 ARG SUPERCRONIC_VERSION=v0.2.49
@@ -18,6 +19,8 @@ RUN apt-get update \
 
 RUN useradd --create-home --uid 1000 app
 WORKDIR /app
+# A volume mounted here starts out owned by the app user.
+RUN mkdir data && chown app:app data
 
 COPY pyproject.toml constraints.txt README.md ./
 COPY src src
@@ -28,6 +31,8 @@ COPY archive archive
 COPY analytics analytics
 RUN pip install --no-cache-dir -c constraints.txt ".[analytics]"
 
+COPY alembic.ini ./
+COPY db db
 COPY --chown=app dbt dbt
 COPY docker/crontab crontab
 USER app

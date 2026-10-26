@@ -59,7 +59,7 @@ class StreamSettings:
     @classmethod
     def from_env(cls) -> StreamSettings:
         return cls(
-            bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092"),
+            bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:19092"),
             raw_topic=os.getenv("HFP_RAW_TOPIC", "hfp.raw"),
             raw_partitions=int(os.getenv("HFP_RAW_PARTITIONS", "6")),
             raw_retention_ms=int(os.getenv("HFP_RAW_RETENTION_MS", str(24 * 60 * 60 * 1000))),

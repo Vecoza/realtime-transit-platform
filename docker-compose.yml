@@ -1,13 +1,38 @@
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/app.Dockerfile
+  image: transit-platform-app
+  restart: unless-stopped
+  env_file: .env
+  environment: &app-environment
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    GTFS_DOWNLOAD_DIR: /app/data/gtfs
+    ARCHIVE_DIR: /app/data/archive
+    DUCKDB_PATH: /app/data/warehouse.duckdb
+    RECORDINGS_DIR: /app/data/recordings
+  volumes:
+    - appdata:/app/data
+
+x-after-init: &after-init
+  init:
+    condition: service_completed_successfully
+  redpanda:
+    condition: service_healthy
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: rtp-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/init:/docker-entrypoint-initdb.d:ro
@@ -20,6 +45,7 @@ services:
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
     container_name: rtp-redpanda
+    restart: unless-stopped
     command:
       - redpanda
       - start
@@ -27,11 +53,11 @@ services:
       - --smp=1
       - --memory=1G
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://127.0.0.1:19092
       - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
     ports:
-      - "19092:19092"
-      - "18081:18081"
+      - "127.0.0.1:19092:19092"
+      - "127.0.0.1:18081:18081"
     volumes:
       - redpanda:/var/lib/redpanda/data
     healthcheck:
@@ -40,13 +66,63 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-off preparation on every start: migrations, the dashboards' role password, and a
+  # timetable on the first start. Each step is idempotent; the services below wait for it.
+  init:
+    <<: *app
+    container_name: rtp-init
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >-
+        alembic upgrade head
+        && python -m transit_platform.reader_role
+        && python -m gtfs.load --if-missing
+        && python -m archive.lifecycle
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  producer:
+    <<: *app
+    container_name: rtp-producer
+    command: ["python", "-m", "producer.produce"]
+    depends_on: *after-init
+
+  sink:
+    <<: *app
+    container_name: rtp-sink
+    command: ["python", "-m", "processor.sink"]
+    environment:
+      <<: *app-environment
+      SINK_INSTANCE_ID: sink-1
+    depends_on: *after-init
+
+  aggregator:
+    <<: *app
+    container_name: rtp-aggregator
+    command: ["python", "-m", "processor.aggregate"]
+    environment:
+      <<: *app-environment
+      AGGREGATOR_INSTANCE_ID: aggregator-1
+    depends_on: *after-init
+
+  scheduler:
+    <<: *app
+    container_name: rtp-scheduler
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
   grafana:
     image: grafana/grafana-oss:12.4.0
     container_name: rtp-grafana
+    restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      # Local only: anyone who can reach the port may view, nobody may edit.
+      # Anyone who can reach the port may view, nobody may edit; the port is bound to localhost.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/network_now.json
@@ -70,32 +146,8 @@ services:
       timeout: 5s
       retries: 10
 
-  scheduler:
-    build:
-      context: .
-      dockerfile: docker/app.Dockerfile
-    container_name: rtp-scheduler
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      GTFS_DOWNLOAD_DIR: /app/data/gtfs
-      ARCHIVE_DIR: /app/data/archive
-      ARCHIVE_KEEP_DAYS_POSITIONS: ${ARCHIVE_KEEP_DAYS_POSITIONS:-2}
-      ARCHIVE_KEEP_DAYS_STOP_EVENTS: ${ARCHIVE_KEEP_DAYS_STOP_EVENTS:-7}
-      ARCHIVE_KEEP_DAYS_MINUTE_STATS: ${ARCHIVE_KEEP_DAYS_MINUTE_STATS:-7}
-      ARCHIVE_KEEP_DAYS_TIMETABLE: ${ARCHIVE_KEEP_DAYS_TIMETABLE:-2}
-      DUCKDB_PATH: /app/data/warehouse.duckdb
-    volumes:
-      - ./data:/app/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    profiles: [jobs]
-
 volumes:
   pgdata:
   redpanda:
   grafana:
+  appdata:

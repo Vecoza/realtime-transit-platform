@@ -22,7 +22,8 @@ A test runs every query of every dashboard, template variable and alert rule as 
 
 - a map of every vehicle that reported in the last 60 seconds (`rt.vehicle_status`), on OpenStreetMap;
 - lines and stops ordered by median delay over the last 10 and 15 minutes, with the p90 next to it, from the per-minute windows;
-- median delay by mode over time;
+- median delay by mode over time; lines whose journeys matched no timetable trip have no mode and appear as *no timetable match*;
+- how far the aggregator is behind the clock: the age of its watermark, green below 20 seconds, orange below a minute, red above. It is about a second when the aggregator keeps up. (The time since the newest minute window closed would be the obvious figure, but it runs from 10 to 70 seconds every minute by design and cannot carry thresholds.)
 - stale vehicles: on a trip that has started and is still planned to run, and silent for two minutes. Vehicles silent before their trip's start are `waiting`, those whose trip has ended `finished`; neither is shown;
 - suspect sign-ons, counted and listed: vehicles still reporting a journey that was planned to end more than 15 minutes earlier. Their delays are left out of every ranking (see [design_aggregation.md](design_aggregation.md#suspect-sign-ons)).
 
@@ -48,7 +49,7 @@ All delays here are labelled **live delay, HSL estimate**: the value HSL sends i
 | Partition sizes | catalog sizes of the `rt` partitions, including the default partitions, which should stay empty |
 | Last archive runs, time since the last one | `meta.archive_runs` |
 | Last dbt runs, time since the last one | `meta.dbt_runs` |
-| Time since data was last stored, sink lag now | the latest sink batches |
+| Time since data was last stored; sink lag now, in messages and in seconds of feed (the lag divided by the rate consumed over the last 15 minutes), green below 10,000 messages or 10 seconds, red from 30,000 or 30 seconds, where the lag alert's threshold lies | the latest sink batches |
 
 "Messages in" is what the sink consumed from the raw topic. The producer's own rate is not in PostgreSQL; Grafana reads nothing else.
 

@@ -548,7 +548,7 @@
       "id": 12,
       "type": "stat",
       "title": "Sink lag now",
-      "description": "",
+      "description": "Messages the sink is behind the end of the raw topic, and how many seconds of the feed that is at the rate the sink consumed over the last 15 minutes. The consumer lag alert fires above 30,000 messages for five minutes.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -556,7 +556,7 @@
       "gridPos": {
         "x": 6,
         "y": 29,
-        "w": 6,
+        "w": 8,
         "h": 4
       },
       "targets": [
@@ -569,20 +569,103 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT consumer_lag FROM meta.consumer_metrics ORDER BY batch_id DESC LIMIT 1"
+          "rawSql": "WITH latest AS (\n    SELECT consumer_lag FROM meta.consumer_metrics ORDER BY batch_id DESC LIMIT 1\n),\nfeed AS (\n    SELECT sum(messages) / 900.0 AS per_second\n    FROM meta.consumer_metrics\n    WHERE committed_at > now() - interval '15 minutes'\n)\nSELECT latest.consumer_lag AS messages,\n       latest.consumer_lag / nullif(feed.per_second, 0) AS seconds_of_feed\nFROM latest, feed"
         }
       ],
       "fieldConfig": {
         "defaults": {},
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "messages"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "messages"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 10000
+                    },
+                    {
+                      "color": "red",
+                      "value": 30000
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seconds_of_feed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "seconds of feed"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 10
+                    },
+                    {
+                      "color": "red",
+                      "value": 30
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": ""
         },
-        "colorMode": "none"
+        "colorMode": "background",
+        "textMode": "value_and_name"
       }
     }
   ]

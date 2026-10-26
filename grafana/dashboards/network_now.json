@@ -273,8 +273,8 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Newest minute closed",
-      "description": "How long ago the newest emitted per-minute window ended. A window closes once the watermark has passed its end plus ten seconds of allowed lateness; this grows when the aggregator falls behind.",
+      "title": "Aggregator behind now",
+      "description": "How far the aggregator's watermark, the event time up to which it has seen every partition, is behind the clock. A minute window closes ten seconds after the watermark passes its end, so this is how late the newest minutes are. About a second when the aggregator keeps up.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "transit-postgres"
@@ -295,12 +295,30 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT extract(epoch FROM now() - max(window_start + interval '1 minute')) AS seconds\nFROM rt.route_minute_stats\nWHERE window_start > now() - interval '1 hour'"
+          "rawSql": "SELECT extract(epoch FROM now() - watermark) AS seconds\nFROM meta.aggregator_watermarks\nORDER BY updated_at DESC\nLIMIT 1"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 60
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -310,7 +328,7 @@
             "lastNotNull"
           ]
         },
-        "colorMode": "none"
+        "colorMode": "background"
       }
     },
     {
@@ -424,7 +442,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT coalesce(r.route_short_name, s.route_id) AS line,\n       r.mode,\n       max(s.minute_journeys) AS journeys,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p50_live_delay_s))::numeric) AS median_delay_s,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p90_live_delay_s))::numeric) AS p90_delay_s\nFROM (\n    SELECT *, sum(journeys) OVER (PARTITION BY route_id, window_start) AS minute_journeys\n    FROM rt.route_minute_stats\n    WHERE window_start > now() - interval '10 minutes'\n) AS s\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nGROUP BY 1, 2\nHAVING count(s.p50_live_delay_s) > 0\nORDER BY median_delay_s DESC\nLIMIT 25"
+          "rawSql": "SELECT coalesce(r.route_short_name, s.route_id) AS line,\n       coalesce(r.mode, 'no timetable match') AS mode,\n       max(s.minute_journeys) AS journeys,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p50_live_delay_s))::numeric) AS median_delay_s,\n       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p90_live_delay_s))::numeric) AS p90_delay_s\nFROM (\n    SELECT *, sum(journeys) OVER (PARTITION BY route_id, window_start) AS minute_journeys\n    FROM rt.route_minute_stats\n    WHERE window_start > now() - interval '10 minutes'\n) AS s\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nGROUP BY 1, 2\nHAVING count(s.p50_live_delay_s) > 0\nORDER BY median_delay_s DESC\nLIMIT 25"
         }
       ],
       "fieldConfig": {
@@ -508,7 +526,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 70
+                "value": 135
               }
             ]
           },
@@ -559,7 +577,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "time_series",
-          "rawSql": "SELECT s.window_start AS time,\n       coalesce(r.mode, 'unknown') AS metric,\n       percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p50_live_delay_s) AS delay\nFROM rt.route_minute_stats AS s\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE $__timeFilter(s.window_start) AND s.p50_live_delay_s IS NOT NULL\nGROUP BY 1, 2\nORDER BY 1"
+          "rawSql": "SELECT s.window_start AS time,\n       coalesce(r.mode, 'no timetable match') AS metric,\n       percentile_cont(0.5) WITHIN GROUP (ORDER BY s.p50_live_delay_s) AS delay\nFROM rt.route_minute_stats AS s\nLEFT JOIN marts.dim_routes AS r USING (route_id)\nWHERE $__timeFilter(s.window_start) AND s.p50_live_delay_s IS NOT NULL\nGROUP BY 1, 2\nORDER BY 1"
         }
       ],
       "fieldConfig": {

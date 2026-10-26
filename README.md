@@ -78,7 +78,7 @@ The numbers below come from recordings of the real HSL feed, replayed through th
 | **Restarts** | sink back to work 0.9 s after `kill -9` with static group membership (45.2 s with dynamic); aggregator rebuilds 470,000 events of open minutes from stored rows in 2.2–2.4 s |
 | **Storage** | a stored position takes 293 bytes in PostgreSQL; a day of positions is 7 times smaller in Parquet, a timetable version 88 times (1,508 MB to 17 MB); a full timetable load 118 s |
 | **Plausibility** | the platform's measured delay and HSL's live estimate give the same late or not-late verdict for 99.6% of 14,009 departures |
-| **Tests** | 182 pytest tests (unit tests and integration tests against PostgreSQL and Redpanda, including crash and restart cases) and 15 dbt models with 38 data tests, all run in CI without the live feed |
+| **Tests** | 184 pytest tests (unit tests and integration tests against PostgreSQL and Redpanda, including crash and restart cases) and 15 dbt models with 38 data tests, all run in CI without the live feed |
 
 ![Punctuality](docs/images/punctuality.png)
 

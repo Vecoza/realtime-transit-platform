@@ -61,6 +61,7 @@ from processor.windows import (
     vehicle_id,
 )
 from producer.hfp import Envelope
+from producer.kafka_sink import ensure_topic
 from transit_platform.config import AggregatorSettings, DatabaseSettings, StreamSettings
 from transit_platform.logs import configure_logging
 from transit_platform.shutdown import stop_event_on_signals
@@ -711,6 +712,7 @@ def main() -> int:
     stop = stop_event_on_signals()
     stream = StreamSettings.from_env()
     settings = AggregatorSettings.from_env()
+    ensure_topic(stream)
     consumer = Consumer(consumer_config(stream, settings))
     admin = AdminClient({"bootstrap.servers": stream.bootstrap_servers})
     storage = kafka_storage_offsets(admin, settings.storage_group_id, stream.raw_topic)

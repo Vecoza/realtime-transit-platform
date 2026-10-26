@@ -45,7 +45,7 @@ from processor.store import (
     write_events,
 )
 from producer.hfp import Envelope
-from producer.kafka_sink import PRODUCER_CONFIG, create_topic
+from producer.kafka_sink import PRODUCER_CONFIG, create_topic, ensure_topic
 from transit_platform.config import DatabaseSettings, ProcessorSettings, StreamSettings
 from transit_platform.logs import configure_logging
 from transit_platform.shutdown import stop_event_on_signals
@@ -298,6 +298,7 @@ def main() -> int:
     stop = stop_event_on_signals()
     stream = StreamSettings.from_env()
     settings = ProcessorSettings.from_env()
+    ensure_topic(stream)
     create_topic(stream.bootstrap_servers, settings.dlq_topic, 1, DLQ_RETENTION_MS)
     consumer = build_consumer(stream, settings)
     dlq = Producer({"bootstrap.servers": stream.bootstrap_servers, **PRODUCER_CONFIG})
